@@ -125,6 +125,8 @@ async function handleFiles(files) {
   try {
     const res = await fetch(`${API}/upload`, { method: "POST", body: form });
     const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `Upload failed (HTTP ${res.status})`);
+    if (!data.session_id) throw new Error("The server did not return an upload session.");
     sessionId = data.session_id;
     renderFileBadges(data.files);
     await preprocess();
@@ -154,6 +156,7 @@ async function preprocess() {
   form.append("session_id", sessionId);
   const res = await fetch(`${API}/preprocess`, { method: "POST", body: form });
   const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || `Preprocessing failed (HTTP ${res.status})`);
   renderSidebarStats(data.summary);
   renderPrepReport(data.reports);
 
@@ -972,8 +975,8 @@ async function runAnomalyView(vk) {
         return `<tr>
           <td>${escapeHtml(d.dataset)}</td>
           <td>${mIcon} ${escapeHtml(d.method)}</td>
-          <td style="color:var(--accent-red);font-weight:600;">${d.predicted_anomalies}</td>
-          <td>${d.horizon || "-"}</td>
+          <td style="color:var(--accent-red);font-weight:600;">${escapeHtml(d.predicted_anomalies)}</td>
+          <td>${escapeHtml(d.horizon || "-")}</td>
           <td style="color:var(--text-muted);font-size:0.85rem;">${escapeHtml(d.time_column || "none")}</td>
         </tr>`;
       }).join("");
