@@ -364,8 +364,7 @@ async function runPipeline() {
       data = JSON.parse(text);
     } catch (parseErr) {
       hideLoading();
-      showStatus(`Pipeline failed! Server returned ${res.status}: "${text.substring(0, 200)}"`, "error");
-      console.error("Raw response text:", text);
+      showStatus(`Pipeline failed (HTTP ${res.status}). Check the server log for details.`, "error");
       return;
     }
     if (data.status === "complete") {
@@ -374,7 +373,7 @@ async function runPipeline() {
       showStatus("✅ Pipeline complete! Results loaded for all views.", "success");
     } else {
       hideLoading();
-      showStatus(`Pipeline error: ${JSON.stringify(data)}`, "error");
+      showStatus("Pipeline failed. Check the server log for details.", "error");
     }
   } catch (err) {
     hideLoading();
@@ -532,8 +531,6 @@ async function loadAllResults() {
 
     
     // Recommender tab - per-view sub-tabs (mirrors insightContent pattern)
-    console.log("DEBUG recByView:", JSON.stringify(recByView));
-    console.log("DEBUG viewKeys:", viewKeys);
     makeViewPanels("recContent", (vk) => {
       const rv = recByView[vk] || {};
       const recText = rv.recommender || "";
@@ -815,7 +812,7 @@ async function buildInteractiveChart() {
     const badgeColor = CHART_TYPE_COLORS[ctype] || "var(--accent-cyan)";
 
     // Unique ID for this chart in history
-    const chartId = `custom-chart-${Date.now()}`;
+    const chartId = `custom-chart-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     // ── Shared Plotly layout overrides ─────────────────────────────────
     const layout = Object.assign({}, figLayout);
@@ -847,9 +844,9 @@ async function buildInteractiveChart() {
       historyCard.style.marginBottom = "12px";
       historyCard.innerHTML = `
         <div class="chart-header">
-          <span class="chart-title">${autoTitle}</span>
+          <span class="chart-title">${escapeHtml(autoTitle)}</span>
           <span style="display:flex;align-items:center;gap:6px;">
-            <span class="chart-badge approved" style="background:${badgeColor};color:#070912;">${ctype}</span>
+            <span class="chart-badge approved" style="background:${badgeColor};color:#070912;">${escapeHtml(ctype)}</span>
             <button onclick="this.closest('.chart-container').remove()"
               style="background:none;border:none;color:var(--accent-red);cursor:pointer;font-size:1.1rem;line-height:1;"
               title="Remove chart">✕</button>
@@ -954,15 +951,15 @@ async function runAnomalyView(vk) {
       <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">
         <div class="kpi-card">
           <div class="kpi-label">PREDICTED ANOMALIES</div>
-          <div class="kpi-value" style="font-size:1.3rem;color:var(--accent-red);-webkit-text-fill-color:var(--accent-red);">${data.predicted_anomalies}</div>
+          <div class="kpi-value" style="font-size:1.3rem;color:var(--accent-red);-webkit-text-fill-color:var(--accent-red);">${escapeHtml(data.predicted_anomalies)}</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">HORIZON</div>
-          <div class="kpi-value" style="font-size:1rem;">${data.horizon}</div>
+          <div class="kpi-value" style="font-size:1rem;">${escapeHtml(data.horizon)}</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">CONFIDENCE</div>
-          <div class="kpi-value" style="font-size:1.3rem;">${data.confidence}</div>
+          <div class="kpi-value" style="font-size:1.3rem;">${escapeHtml(data.confidence)}</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">METHOD</div>
