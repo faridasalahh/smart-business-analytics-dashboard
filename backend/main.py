@@ -263,6 +263,8 @@ def run_pipeline(session_id: str = Form(...), run_insight: bool = Form(False)):
             "view_titles": view_titles,
             "triple_mode": is_triple_view(views),
         }
+    except HTTPException:
+        raise
     except Exception:
         import traceback
         print(f"\n{'='*60}\nPIPELINE CRASHED!\n{traceback.format_exc()}\n{'='*60}", flush=True)
