@@ -147,9 +147,13 @@ The project is designed to use a locally running Ollama model for LLM inference.
 
 Uploaded datasets and generated artifacts are handled by the running application. **Do not upload confidential business data, personal information, API keys, local environment files, or private datasets to this repository.** Review your local configuration and sample files before publishing or sharing the project.
 
-## Project Context and Credits
+## Project Context
 
-This was developed as a collaborative Artificial Intelligence graduation project at Nile University (2026). Please refer to the project report for the full academic context, and add the names of all team members, supervisor(s), and a concise description of your own contribution here before making the repository public.
+This project was developed collaboratively as the Artificial Intelligence graduation project at Nile University in 2026. The repository contains the application source code and documentation for the project. As a team project, the work reflects contributions from multiple collaborators.
+
+## License
+
+This repository does not currently include an open-source license. The code is therefore not granted permissions for public reuse, modification, or redistribution. Please contact the project contributors to discuss permission before reusing any part of the work.
 
 ## Limitations
 
