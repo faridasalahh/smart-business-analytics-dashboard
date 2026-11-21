@@ -91,7 +91,7 @@ def test_expired_session_removes_runtime_files(tmp_path, monkeypatch):
 
 def test_csv_upload_preprocess_and_kpis(tmp_path, monkeypatch):
     monkeypatch.setattr(main, "UPLOAD_DIR", str(tmp_path / "uploads"))
-    csv_data = b"Customer,Revenue\\nA,100\\nB,200\\n"
+    csv_data = b"Customer,Revenue" + bytes([10]) + b"A,100" + bytes([10]) + b"B,200" + bytes([10])
 
     with TestClient(main.app) as client:
         upload = client.post(
