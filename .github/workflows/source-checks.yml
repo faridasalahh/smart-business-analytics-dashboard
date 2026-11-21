@@ -1,4 +1,4 @@
-name: Source and smoke tests
+name: Source, smoke and regression tests
 
 on:
   push:
