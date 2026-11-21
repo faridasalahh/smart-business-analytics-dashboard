@@ -1,4 +1,4 @@
-const API = "http://localhost:8000/api";
+const API = "/api";
 let sessionId = null;
 let currentTab = "data";
 let viewKeys = ["unified"];
@@ -19,7 +19,7 @@ function hideLoading() { document.getElementById("loadingOverlay").classList.add
 function showStatus(msg, type = "info") {
   const el = document.getElementById("statusMessage");
   el.className = `status-msg ${type}`;
-  el.innerHTML = msg;
+  el.textContent = msg;
   el.classList.remove("hidden");
 }
 function clearStatus() { document.getElementById("statusMessage").classList.add("hidden"); }
@@ -139,7 +139,14 @@ async function handleFiles(files) {
 }
 
 function renderFileBadges(files) {
-  document.getElementById("fileBadges").innerHTML = files.map((f) => `<span class="file-badge">📊 ${f}</span>`).join("");
+  const container = document.getElementById("fileBadges");
+  container.replaceChildren();
+  for (const fileName of files) {
+    const badge = document.createElement("span");
+    badge.className = "file-badge";
+    badge.textContent = `📊 ${fileName}`;
+    container.appendChild(badge);
+  }
 }
 
 async function preprocess() {
@@ -305,7 +312,13 @@ async function loadDataPreview() {
 
 function renderDatasetSelector(datasets) {
   const sel = document.getElementById("dsSelect");
-  sel.innerHTML = Object.keys(datasets).map(n => `<option value="${n}">${n}</option>`).join("");
+  sel.replaceChildren();
+  for (const name of Object.keys(datasets)) {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    sel.appendChild(option);
+  }
 }
 
 // ─── Pipeline ───
