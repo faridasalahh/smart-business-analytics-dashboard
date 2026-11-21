@@ -147,9 +147,23 @@ The project is designed to use a locally running Ollama model for LLM inference.
 
 Uploaded datasets and generated artifacts are handled by the running application. **Do not upload confidential business data, personal information, API keys, local environment files, or private datasets to this repository.** Review your local configuration and sample files before publishing or sharing the project.
 
-## Project Context
+## Project Context and Credits
 
-This project was developed collaboratively as the Artificial Intelligence graduation project at Nile University in 2026. The repository contains the application source code and documentation for the project. As a team project, the work reflects contributions from multiple collaborators.
+**Smart Dashboard Generation for Business Analytics Using LLMs** was developed as a collaborative senior project at **Nile University**, School of Information Technology and Computer Science, under **CSCI495 / AIS495 Senior Project II**.
+
+**Project team**
+- Nosaiba Mekawy
+- Shahd Nagah
+- Aly Sakr
+- Al Basel Waleed
+- Farida Salah
+- Mohamed Waleed
+
+**Supervised by**
+- Dr. Ensaf Hussein
+- Eng. Mohamed Ibrahim
+
+The project was submitted in partial fulfilment of the requirements for the bachelor's degree in Information Technology and Computer Science, with the Computer Science and Artificial Intelligence program.
 
 ## License
 
