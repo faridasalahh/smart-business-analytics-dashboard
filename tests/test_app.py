@@ -34,7 +34,7 @@ def test_rejects_cross_origin_browser_writes():
         response = client.post(
             "/api/upload",
             headers={"origin": "https://attacker.example"},
-            files=[("files", ("sample.csv", b"name,value\\nA,1\\n", "text/csv"))],
+            files=[("files", ("sample.csv", b"name,value\nA,1\n", "text/csv"))],
         )
 
     assert response.status_code == 403
@@ -47,7 +47,7 @@ def test_upload_sanitizes_filename_and_stores_inside_session(tmp_path, monkeypat
     with TestClient(main.app) as client:
         response = client.post(
             "/api/upload",
-            files=[("files", ("../../sample.csv", b"name,value\\nA,1\\nB,2\\n", "text/csv"))],
+            files=[("files", ("../../sample.csv", b"name,value\nA,1\nB,2\n", "text/csv"))],
         )
 
     assert response.status_code == 200
@@ -57,7 +57,7 @@ def test_upload_sanitizes_filename_and_stores_inside_session(tmp_path, monkeypat
     session_id = payload["session_id"]
     stored_path = Path(main.sessions[session_id]["files"]["sample.csv"]).resolve()
     assert stored_path.parent == (upload_root / session_id).resolve()
-    assert re.fullmatch(r"[0-9a-f]{32}_sample\\.csv", stored_path.name)
+    assert re.fullmatch(r"[0-9a-f]{32}_sample\.csv", stored_path.name)
     assert stored_path.read_bytes().startswith(b"name,value")
 
 
