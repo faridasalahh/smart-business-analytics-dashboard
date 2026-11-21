@@ -19,7 +19,7 @@ def main():
     except ImportError:
         pass
 
-    host = os.getenv("HOST", "127.0.0.1")
+    host = "127.0.0.1"  # Keep the demo bound to this computer only.
     port = int(os.getenv("PORT", "8000"))
 
     print(f"  Starting server on {host}:{port} ...", flush=True)
