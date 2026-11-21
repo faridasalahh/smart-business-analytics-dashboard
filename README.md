@@ -25,6 +25,8 @@ The application consists of a **FastAPI/Python backend** and a **vanilla JavaScr
 
 ## System Architecture
 
+![System Architecture](assets/architecture.png)
+
 The workflow is organized into four stages:
 
 1. **Data upload and interaction** — users upload datasets, choose the analysis view, and begin the workflow.
