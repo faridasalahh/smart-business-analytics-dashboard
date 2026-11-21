@@ -62,6 +62,12 @@ The backend includes the following agent roles:
 
 ```text
 smart-business-analytics-dashboard/
+├── .github/
+│   └── workflows/
+│       └── source-checks.yml
+├── assets/
+│   ├── architecture.png
+│   └── demo.mp4
 ├── backend/
 │   ├── __init__.py
 │   ├── agents_core.py
@@ -74,6 +80,8 @@ smart-business-analytics-dashboard/
 │   │   └── style.css
 │   └── js/
 │       └── app.js
+├── tests/
+│   └── test_app.py
 ├── launch.py
 ├── requirements.txt
 └── README.md
@@ -133,7 +141,7 @@ The backend defaults to the Ollama service at `http://127.0.0.1:11434` and the m
 python launch.py
 ```
 
-The launcher starts the FastAPI server and opens the dashboard in your browser.
+The launcher starts the FastAPI server on the local loopback interface (127.0.0.1) and opens the dashboard in your browser. The launcher intentionally ignores a `HOST` override so the demo is not accidentally exposed to your local network.
 
 - **Dashboard:** http://localhost:8000
 - **API documentation:** http://localhost:8000/docs
@@ -141,11 +149,24 @@ The launcher starts the FastAPI server and opens the dashboard in your browser.
 
 Press `Ctrl+C` in the terminal to stop the application.
 
+### Run the automated checks
+
+The repository includes backend smoke and security regression tests. After installing the application dependencies, install the test tools and run:
+
+```bash
+python -m pip install pytest httpx==0.27.2
+python -m pytest -q
+```
+
+GitHub Actions runs Python/JavaScript syntax checks and the backend test suite on pushes and pull requests.
+
 ## Data and Privacy
 
 The project is designed to use a locally running Ollama model for LLM inference. This avoids sending prompts to a hosted LLM API as part of the default local setup.
 
-Uploaded datasets and generated artifacts are handled by the running application. **Do not upload confidential business data, personal information, API keys, local environment files, or private datasets to this repository.** Review your local configuration and sample files before publishing or sharing the project.
+Uploaded datasets and generated artifacts are handled by the running application. Uploads are limited to 25 MB per file. Runtime files are excluded from Git by `.gitignore`. **Do not upload confidential business data, personal information, API keys, local environment files, or private datasets to this repository.** Review your local configuration and sample files before publishing or sharing the project.
+
+**Security boundary:** the application is intended for local demonstrations. The launcher binds to `127.0.0.1` by default and the API does not implement user authentication or production-grade session management. Do not expose it to a public network through a custom Uvicorn command, reverse proxy, or other deployment setup without first implementing authentication, authorization, robust session management, and deployment hardening.
 
 ## Project Context and Credits
 
@@ -171,7 +192,7 @@ The project was submitted in partial fulfilment of the requirements for the bach
 - Forecasting quality depends on the presence and quality of a usable time column and sufficient historical observations.
 - Some input formats may require optional parsing engines in the Python environment.
 - This repository contains the application source code; datasets and model weights are not included.
-- The current application should be treated as an academic project/demo, not deployed as a production service without additional security, access-control, and operational hardening.
+- The current application should be treated as an academic project/demo, not deployed as a production service without additional security, access-control, and operational hardening. The local-only protections are defense-in-depth for a single-user demo, not authentication or a security boundary for multi-user use.
 
 ## License
 

@@ -1,4 +1,4 @@
-const API = "http://localhost:8000/api";
+const API = "/api";
 let sessionId = null;
 let currentTab = "data";
 let viewKeys = ["unified"];
@@ -19,7 +19,7 @@ function hideLoading() { document.getElementById("loadingOverlay").classList.add
 function showStatus(msg, type = "info") {
   const el = document.getElementById("statusMessage");
   el.className = `status-msg ${type}`;
-  el.innerHTML = msg;
+  el.textContent = msg;
   el.classList.remove("hidden");
 }
 function clearStatus() { document.getElementById("statusMessage").classList.add("hidden"); }
@@ -29,7 +29,7 @@ function clearStatus() { document.getElementById("statusMessage").classList.add(
 // with a plain "\n -> <br>" replace, so headings (##), bold (**) and bullet lists
 // showed as literal characters. This renders them properly and escapes HTML first.
 function escapeHtml(s) {
-  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 function renderInline(s) {
   // input is already HTML-escaped
@@ -125,6 +125,8 @@ async function handleFiles(files) {
   try {
     const res = await fetch(`${API}/upload`, { method: "POST", body: form });
     const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || `Upload failed (HTTP ${res.status})`);
+    if (!data.session_id) throw new Error("The server did not return an upload session.");
     sessionId = data.session_id;
     renderFileBadges(data.files);
     await preprocess();
@@ -139,7 +141,14 @@ async function handleFiles(files) {
 }
 
 function renderFileBadges(files) {
-  document.getElementById("fileBadges").innerHTML = files.map((f) => `<span class="file-badge">📊 ${f}</span>`).join("");
+  const container = document.getElementById("fileBadges");
+  container.replaceChildren();
+  for (const fileName of files) {
+    const badge = document.createElement("span");
+    badge.className = "file-badge";
+    badge.textContent = `📊 ${fileName}`;
+    container.appendChild(badge);
+  }
 }
 
 async function preprocess() {
@@ -147,6 +156,7 @@ async function preprocess() {
   form.append("session_id", sessionId);
   const res = await fetch(`${API}/preprocess`, { method: "POST", body: form });
   const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || `Preprocessing failed (HTTP ${res.status})`);
   renderSidebarStats(data.summary);
   renderPrepReport(data.reports);
 
@@ -162,7 +172,7 @@ async function preprocess() {
     if (sharedCols.length === 0) {
       msgContainer.innerHTML = `<div class="status-msg warning" style="margin-bottom:16px;">⚠️ No Common Columns Detected — The two datasets don't share column names. They will be analyzed independently as Dataset A and Dataset B.</div>`;
     } else {
-      msgContainer.innerHTML = `<div class="status-msg info" style="margin-bottom:16px;">🔀 Triple-View Active — All tabs contain sub-tabs: Dataset A, Dataset B, and their Intersection on <strong>${sharedCols.length} shared column${sharedCols.length > 1 ? 's' : ''}</strong>: ${sharedCols.map(c => `<code style="color:var(--accent-cyan)">${c}</code>`).join(', ')}</div>`;
+      msgContainer.innerHTML = `<div class="status-msg info" style="margin-bottom:16px;">🔀 Triple-View Active — All tabs contain sub-tabs: Dataset A, Dataset B, and their Intersection on <strong>${sharedCols.length} shared column${sharedCols.length > 1 ? 's' : ''}</strong>: ${sharedCols.map(c => `<code style="color:var(--accent-cyan)">${escapeHtml(c)}</code>`).join(', ')}</div>`;
     }
   }
 
@@ -265,47 +275,78 @@ function makeViewPanels(containerId, htmlFn) {
 // ─── Data Preview ───
 async function loadDataPreview() {
   try {
-    const res = await fetch(`${API}/data/${sessionId}/preview?rows=5`);
+    const res = await fetch(`${API}/data/${encodeURIComponent(sessionId)}/preview?rows=5`);
+    if (!res.ok) throw new Error(`Preview request failed: ${res.status}`);
     const data = await res.json();
     const container = document.getElementById("dataPreview");
-    container.innerHTML = "";
+    container.replaceChildren();
+
     for (const [name, info] of Object.entries(data)) {
       const card = document.createElement("div");
       card.className = "card";
-      card.innerHTML = `<div class="card-title">📂 ${name} <span style="margin-left:auto;font-size:0.75rem;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${info.shape[0]} rows × ${info.shape[1]} cols</span></div>`;
+
+      const title = document.createElement("div");
+      title.className = "card-title";
+      title.append(document.createTextNode(`📂 ${name} `));
+      const dimensions = document.createElement("span");
+      dimensions.style.cssText = "margin-left:auto;font-size:0.75rem;color:var(--text-muted);font-family:'JetBrains Mono',monospace;";
+      dimensions.textContent = `${info.shape[0]} rows × ${info.shape[1]} cols`;
+      title.appendChild(dimensions);
+      card.appendChild(title);
+
       const wrap = document.createElement("div");
       wrap.className = "table-wrap";
       const table = document.createElement("table");
       table.className = "data-table";
       const headers = Object.keys(info.data[0] || {});
-      table.innerHTML = `<thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead>`;
-      let tbody = "<tbody>";
-      for (const row of info.data) {
-        tbody += `<tr>${headers.map(h => `<td>${row[h] ?? ""}</td>`).join("")}</tr>`;
+      const thead = document.createElement("thead");
+      const headerRow = document.createElement("tr");
+      for (const header of headers) {
+        const th = document.createElement("th");
+        th.textContent = header;
+        headerRow.appendChild(th);
       }
-      tbody += "</tbody>";
-      table.innerHTML += tbody;
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+
+      const tbody = document.createElement("tbody");
+      for (const row of info.data) {
+        const tr = document.createElement("tr");
+        for (const header of headers) {
+          const td = document.createElement("td");
+          td.textContent = row[header] == null ? "" : String(row[header]);
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
       wrap.appendChild(table);
       card.appendChild(wrap);
       container.appendChild(card);
     }
     renderDatasetSelector(data);
 
-    // 🚨 الخطوة التالتة هنا أهي جوه الدالة بالظبط 
     const firstDatasetName = Object.keys(data)[0];
     if (firstDatasetName) {
       fetchAndDisplayKPIs(firstDatasetName);
-      // الانتقال للتاب
       const kpiTabBtn = document.querySelector('.tab[data-tab="kpi"]');
-      if(kpiTabBtn) kpiTabBtn.click();
+      if (kpiTabBtn) kpiTabBtn.click();
     }
-
-  } catch (err) { console.error("Preview error:", err); }
+  } catch (err) {
+    console.error("Preview error:", err);
+    showStatus(`Preview failed: ${err.message}`, "error");
+  }
 }
 
 function renderDatasetSelector(datasets) {
   const sel = document.getElementById("dsSelect");
-  sel.innerHTML = Object.keys(datasets).map(n => `<option value="${n}">${n}</option>`).join("");
+  sel.replaceChildren();
+  for (const name of Object.keys(datasets)) {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    sel.appendChild(option);
+  }
 }
 
 // ─── Pipeline ───
@@ -326,8 +367,7 @@ async function runPipeline() {
       data = JSON.parse(text);
     } catch (parseErr) {
       hideLoading();
-      showStatus(`Pipeline failed! Server returned ${res.status}: "${text.substring(0, 200)}"`, "error");
-      console.error("Raw response text:", text);
+      showStatus(`Pipeline failed (HTTP ${res.status}). Check the server log for details.`, "error");
       return;
     }
     if (data.status === "complete") {
@@ -336,7 +376,7 @@ async function runPipeline() {
       showStatus("✅ Pipeline complete! Results loaded for all views.", "success");
     } else {
       hideLoading();
-      showStatus(`Pipeline error: ${JSON.stringify(data)}`, "error");
+      showStatus("Pipeline failed. Check the server log for details.", "error");
     }
   } catch (err) {
     hideLoading();
@@ -368,7 +408,7 @@ async function loadAllResults() {
       let html = '';
       for (const [dsName, kpi] of Object.entries(v.kpi || {})) {
         // ── Scalar summary cards ─────────────────────────────────────────────
-        html += `<h3 style="font-family:'Space Grotesk',sans-serif;font-size:0.9rem;color:var(--accent-cyan);margin:16px 0 10px;">📂 ${dsName}</h3>`;
+        html += `<h3 style="font-family:'Space Grotesk',sans-serif;font-size:0.9rem;color:var(--accent-cyan);margin:16px 0 10px;">📂 ${escapeHtml(dsName)}</h3>`;
         html += '<div class="kpi-grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:12px;">';
         const scalars = [
           { label: "Rows",            val: (kpi.rows ?? 0).toLocaleString(),   color: "var(--accent-cyan)"   },
@@ -389,7 +429,7 @@ async function loadAllResults() {
         if (kpi.date_range) {
           html += `<div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:0.82rem;">
             📅 <span style="color:var(--text-muted);">Date Range:</span>
-            <span style="color:var(--accent-cyan);font-family:'JetBrains Mono',monospace;margin-left:8px;">${kpi.date_range.from} → ${kpi.date_range.to}</span>
+            <span style="color:var(--accent-cyan);font-family:'JetBrains Mono',monospace;margin-left:8px;">${escapeHtml(kpi.date_range.from)} → ${escapeHtml(kpi.date_range.to)}</span>
           </div>`;
         }
 
@@ -404,11 +444,11 @@ async function loadAllResults() {
                  </span>`
               : '<span style="color:var(--text-muted)">—</span>';
             const peakHtml = trend
-              ? `<span style="color:var(--accent-yellow);font-size:0.78rem;">${trend.peak_period}</span>`
+              ? `<span style="color:var(--accent-yellow);font-size:0.78rem;">${escapeHtml(trend.peak_period)}</span>`
               : '<span style="color:var(--text-muted)">—</span>';
             const volatility = s.cv_pct > 100 ? '🔴 High' : s.cv_pct > 50 ? '🟡 Medium' : '🟢 Low';
             rows += `<tr>
-              <td style="font-family:'JetBrains Mono',monospace;color:var(--accent-cyan);">${col}</td>
+              <td style="font-family:'JetBrains Mono',monospace;color:var(--accent-cyan);">${escapeHtml(col)}</td>
               <td>${Number(s.total).toLocaleString()}</td>
               <td>${Number(s.mean).toLocaleString()}</td>
               <td>${Number(s.median).toLocaleString()}</td>
@@ -443,16 +483,16 @@ async function loadAllResults() {
       if (!cv || !cv.charts) return "";
       let html = "";
       for (const [dsName, cols] of Object.entries(cv.charts)) {
-        html += `<h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin:16px 0 12px;color:var(--accent-cyan);">📂 ${dsName}</h3><div class="chart-grid">`;
+        html += `<h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin:16px 0 12px;color:var(--accent-cyan);">📂 ${escapeHtml(dsName)}</h3><div class="chart-grid">`;
         let count = 0;
         for (const [col, chart] of Object.entries(cols)) {
           if (count >= 6) break;
           const overridden = chart.original_type !== chart.type;
           const badgeCls = overridden ? "corrected" : chart.guard_warning ? "warning" : "approved";
           const badgeText = overridden ? `🔄 ${chart.original_type} → ${chart.type}` : chart.guard_warning ? "🛡️ Guard" : `✅ ${chart.type}`;
-          const chartId = `chart-${vk}-${dsName.replace(/\s/g, "")}-${col.replace(/\s/g, "")}`;
+          const chartId = `chart-${encodeURIComponent(vk)}-${encodeURIComponent(dsName)}-${encodeURIComponent(col)}`;
           html += `<div class="chart-container">
-            <div class="chart-header"><span class="chart-title">${col}</span><span class="chart-badge ${badgeCls}">${badgeText}</span></div>
+            <div class="chart-header"><span class="chart-title">${escapeHtml(col)}</span><span class="chart-badge ${badgeCls}">${escapeHtml(badgeText)}</span></div>
             <div class="plotly-container" id="${chartId}" style="width:100%;height:380px;"></div>
           </div>`;
           count++;
@@ -494,8 +534,6 @@ async function loadAllResults() {
 
     
     // Recommender tab - per-view sub-tabs (mirrors insightContent pattern)
-    console.log("DEBUG recByView:", JSON.stringify(recByView));
-    console.log("DEBUG viewKeys:", viewKeys);
     makeViewPanels("recContent", (vk) => {
       const rv = recByView[vk] || {};
       const recText = rv.recommender || "";
@@ -524,7 +562,7 @@ async function loadAllResults() {
         if (!cv || !cv.charts) continue;
         for (const [dsName, cols] of Object.entries(cv.charts)) {
           for (const [col, chart] of Object.entries(cols)) {
-            const chartId = `chart-${vk}-${dsName.replace(/\s/g, "")}-${col.replace(/\s/g, "")}`;
+            const chartId = `chart-${encodeURIComponent(vk)}-${encodeURIComponent(dsName)}-${encodeURIComponent(col)}`;
             const el = document.getElementById(chartId);
             if (el && chart.json) {
               try {
@@ -600,7 +638,7 @@ function onChartDatasetChange() {
     xSel.innerHTML = `<option value="">— No columns loaded —</option>`;
   } else {
     xSel.innerHTML = cols.map(c =>
-      `<option value="${c.name}" ${c.name === currentX ? "selected" : ""}>${c.name} (${c.type})</option>`
+      `<option value="${escapeHtml(c.name)}" ${c.name === currentX ? "selected" : ""}>${escapeHtml(c.name)} (${escapeHtml(c.type)})</option>`
     ).join("");
   }
 
@@ -610,12 +648,12 @@ function onChartDatasetChange() {
   let yOpts = `<option value="">— None (count only) —</option>`;
   if (numCols.length) {
     yOpts += `<optgroup label="📊 Numeric">` +
-      numCols.map(c => `<option value="${c.name}" ${c.name === currentY ? "selected" : ""}>${c.name}</option>`).join("") +
+      numCols.map(c => `<option value="${escapeHtml(c.name)}" ${c.name === currentY ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("") +
       `</optgroup>`;
   }
   if (catCols.length) {
     yOpts += `<optgroup label="🔤 Categorical">` +
-      catCols.map(c => `<option value="${c.name}" ${c.name === currentY ? "selected" : ""}>${c.name}</option>`).join("") +
+      catCols.map(c => `<option value="${escapeHtml(c.name)}" ${c.name === currentY ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("") +
       `</optgroup>`;
   }
   ySel.innerHTML = yOpts;
@@ -657,7 +695,7 @@ async function loadChartColumns() {
     }
 
     dsSel.innerHTML = dsNames.map(n =>
-      `<option value="${n}" ${n === currentDs ? "selected" : ""}>${n}</option>`
+      `<option value="${escapeHtml(n)}" ${n === currentDs ? "selected" : ""}>${escapeHtml(n)}</option>`
     ).join("");
 
     onChartDatasetChange(); // populates X and Y dropdowns
@@ -777,7 +815,7 @@ async function buildInteractiveChart() {
     const badgeColor = CHART_TYPE_COLORS[ctype] || "var(--accent-cyan)";
 
     // Unique ID for this chart in history
-    const chartId = `custom-chart-${Date.now()}`;
+    const chartId = `custom-chart-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     // ── Shared Plotly layout overrides ─────────────────────────────────
     const layout = Object.assign({}, figLayout);
@@ -790,8 +828,8 @@ async function buildInteractiveChart() {
       displayEl.innerHTML = `
         <div class="chart-container">
           <div class="chart-header">
-            <span class="chart-title">${autoTitle}</span>
-            <span class="chart-badge approved" style="background:${badgeColor};color:#070912;">${ctype}</span>
+            <span class="chart-title">${escapeHtml(autoTitle)}</span>
+            <span class="chart-badge approved" style="background:${badgeColor};color:#070912;">${escapeHtml(ctype)}</span>
           </div>
           <div class="plotly-container" id="latest-chart" style="width:100%;height:420px;"></div>
         </div>`;
@@ -809,9 +847,9 @@ async function buildInteractiveChart() {
       historyCard.style.marginBottom = "12px";
       historyCard.innerHTML = `
         <div class="chart-header">
-          <span class="chart-title">${autoTitle}</span>
+          <span class="chart-title">${escapeHtml(autoTitle)}</span>
           <span style="display:flex;align-items:center;gap:6px;">
-            <span class="chart-badge approved" style="background:${badgeColor};color:#070912;">${ctype}</span>
+            <span class="chart-badge approved" style="background:${badgeColor};color:#070912;">${escapeHtml(ctype)}</span>
             <button onclick="this.closest('.chart-container').remove()"
               style="background:none;border:none;color:var(--accent-red);cursor:pointer;font-size:1.1rem;line-height:1;"
               title="Remove chart">✕</button>
@@ -910,21 +948,21 @@ async function runAnomalyView(vk) {
     hideLoading();
     const container = document.getElementById(`anomaly-results-${vk}`);
     if (!container) return;
-    if (data.error) { container.innerHTML = `<div class="status-msg warning">${data.error}</div>`; return; }
+    if (data.error) { container.innerHTML = `<div class="status-msg warning">${escapeHtml(data.error)}</div>`; return; }
     const methodLabel = data.method === "prophet" ? "📈 Prophet (Time-Series)" : "🔁 Bootstrap Simulation";
     container.innerHTML = `
       <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">
         <div class="kpi-card">
           <div class="kpi-label">PREDICTED ANOMALIES</div>
-          <div class="kpi-value" style="font-size:1.3rem;color:var(--accent-red);-webkit-text-fill-color:var(--accent-red);">${data.predicted_anomalies}</div>
+          <div class="kpi-value" style="font-size:1.3rem;color:var(--accent-red);-webkit-text-fill-color:var(--accent-red);">${escapeHtml(data.predicted_anomalies)}</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">HORIZON</div>
-          <div class="kpi-value" style="font-size:1rem;">${data.horizon}</div>
+          <div class="kpi-value" style="font-size:1rem;">${escapeHtml(data.horizon)}</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">CONFIDENCE</div>
-          <div class="kpi-value" style="font-size:1.3rem;">${data.confidence}</div>
+          <div class="kpi-value" style="font-size:1.3rem;">${escapeHtml(data.confidence)}</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label">METHOD</div>
@@ -935,11 +973,11 @@ async function runAnomalyView(vk) {
       const rows = data.per_dataset.map(d => {
         const mIcon = d.method === "prophet" ? "📈" : "🔁";
         return `<tr>
-          <td>${d.dataset}</td>
-          <td>${mIcon} ${d.method}</td>
-          <td style="color:var(--accent-red);font-weight:600;">${d.predicted_anomalies}</td>
-          <td>${d.horizon || "-"}</td>
-          <td style="color:var(--text-muted);font-size:0.85rem;">${d.time_column || "none"}</td>
+          <td>${escapeHtml(d.dataset)}</td>
+          <td>${mIcon} ${escapeHtml(d.method)}</td>
+          <td style="color:var(--accent-red);font-weight:600;">${escapeHtml(d.predicted_anomalies)}</td>
+          <td>${escapeHtml(d.horizon || "-")}</td>
+          <td style="color:var(--text-muted);font-size:0.85rem;">${escapeHtml(d.time_column || "none")}</td>
         </tr>`;
       }).join("");
       container.innerHTML += `
@@ -964,7 +1002,7 @@ async function runAnomalyView(vk) {
                       <div style="background: rgba(239, 68, 68, 0.15); border-left: 4px solid #ef4444; padding: 12px 16px; border-radius: 4px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
                         <div>
                           <h4 style="margin: 0; font-size: 0.95rem; color: #f8fafc; font-weight: 600;">⚠️ Horizon Anomalies Detected</h4>
-                          <p style="margin: 4px 0 0 0; font-size: 0.8rem; color: #94a3b8;">Dataset: <span style="color:#ef4444; font-weight:600;">${d.dataset}</span> | Column: <code>${col.column}</code></p>
+                          <p style="margin: 4px 0 0 0; font-size: 0.8rem; color: #94a3b8;">Dataset: <span style="color:#ef4444; font-weight:600;">${escapeHtml(d.dataset)}</span> | Column: <code>${escapeHtml(col.column)}</code></p>
                         </div>
                         <div style="background: #ef4444; color: #ffffff; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; font-family: 'JetBrains Mono', monospace;">
                           ${col.predicted_list.length} ANOMALIES
@@ -985,8 +1023,8 @@ async function runAnomalyView(vk) {
                   col.predicted_list.forEach(p => {
                      previewHtml += `
                             <tr style="border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.2s;" onmouseover="this.style.background='rgba(239, 68, 68, 0.03)'" onmouseout="this.style.background='transparent'">
-                              <td style="padding: 12px 16px; color: #cbd5e1; font-family: 'JetBrains Mono', monospace;">📅 ${p.date}</td>
-                              <td style="padding: 12px 16px; color: #f1f5f9; font-weight: 500;">📈 ${p.expected}</td>
+                              <td style="padding: 12px 16px; color: #cbd5e1; font-family: 'JetBrains Mono', monospace;">📅 ${escapeHtml(p.date)}</td>
+                              <td style="padding: 12px 16px; color: #f1f5f9; font-weight: 500;">📈 ${escapeHtml(p.expected)}</td>
                               <td style="padding: 12px 16px; text-align: right;">
                                 <span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 3px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.05em;">ANOMALY RISK</span>
                               </td>
@@ -1007,7 +1045,7 @@ async function runAnomalyView(vk) {
                       <div style="background: rgba(239, 68, 68, 0.15); border-left: 4px solid #ef4444; padding: 12px 16px; border-radius: 4px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
                         <div>
                           <h4 style="margin: 0; font-size: 0.95rem; color: #f8fafc; font-weight: 600;">⚠️ Simulated Profile Anomaly Signatures</h4>
-                          <p style="margin: 4px 0 0 0; font-size: 0.8rem; color: #94a3b8;">Dataset: <span style="color:#ef4444; font-weight:600;">${d.dataset}</span></p>
+                          <p style="margin: 4px 0 0 0; font-size: 0.8rem; color: #94a3b8;">Dataset: <span style="color:#ef4444; font-weight:600;">${escapeHtml(d.dataset)}</span></p>
                         </div>
                       </div>
                       <div style="background: #0f172a; border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; max-height: 300px; overflow-y: auto;">
@@ -1023,7 +1061,7 @@ async function runAnomalyView(vk) {
             d.simulation.predicted_list.forEach(p => {
                previewHtml += `
                             <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
-                              <td style="padding: 12px 16px; color: #cbd5e1; font-family: 'JetBrains Mono', monospace;">⚠️ ${p.expected}</td>
+                              <td style="padding: 12px 16px; color: #cbd5e1; font-family: 'JetBrains Mono', monospace;">⚠️ ${escapeHtml(p.expected)}</td>
                               <td style="padding: 12px 16px; text-align: right;">
                                 <span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 3px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 600;">CRITICAL</span>
                               </td>
@@ -1092,14 +1130,60 @@ async function findSimilar() {
     const data = await res.json();
     hideLoading();
     const container = document.getElementById("similarResults");
-    if (data.error) { container.innerHTML = `<div class="status-msg warning">${data.error}</div>`; return; }
-    if (!data.matches || !data.matches.length) { container.innerHTML = '<div class="status-msg info">No similar records found.</div>'; return; }
+    container.replaceChildren();
+    if (data.error) {
+      const message = document.createElement("div");
+      message.className = "status-msg warning";
+      message.textContent = data.error;
+      container.appendChild(message);
+      return;
+    }
+    if (!data.matches || !data.matches.length) {
+      const message = document.createElement("div");
+      message.className = "status-msg info";
+      message.textContent = "No similar records found.";
+      container.appendChild(message);
+      return;
+    }
+
+    const status = document.createElement("div");
+    status.className = "status-msg success";
+    status.style.marginTop = "12px";
+    status.textContent = `✅ Top ${data.matches.length} matches for Row ${rowIdx}`;
+    container.appendChild(status);
+
+    const wrap = document.createElement("div");
+    wrap.className = "table-wrap";
+    const table = document.createElement("table");
+    table.className = "data-table";
     const headers = Object.keys(data.matches[0]);
-    container.innerHTML = `
-      <div class="status-msg success" style="margin-top:12px;">✅ Top ${data.matches.length} matches for Row ${rowIdx}</div>
-      <div class="table-wrap"><table class="data-table"><thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead>
-      <tbody>${data.matches.map(r => `<tr>${headers.map(h => `<td>${r[h] ?? ""}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
-  } catch (err) { hideLoading(); showStatus(`Similarity search failed: ${err.message}`, "error"); }
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    for (const header of headers) {
+      const th = document.createElement("th");
+      th.textContent = header;
+      headerRow.appendChild(th);
+    }
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    for (const record of data.matches) {
+      const tr = document.createElement("tr");
+      for (const header of headers) {
+        const td = document.createElement("td");
+        td.textContent = record[header] == null ? "" : String(record[header]);
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    container.appendChild(wrap);
+  } catch (err) {
+    hideLoading();
+    showStatus(`Similarity search failed: ${err.message}`, "error");
+  }
 }
 
 // ─── PDF Export ───
@@ -1132,7 +1216,7 @@ async function checkLLM() {
     if (!res.ok) throw new Error(res.status);
     const data = await res.json();
     const isOnline = data.online === true;
-    const statusDetail = data.status || (isOnline ? "online" : "offline");
+    const statusDetail = String(data.status || (isOnline ? "online" : "offline"));
     el.className = `llm-status ${isOnline ? "online" : "offline"}`;
     let label = isOnline ? "ONLINE" : "OFFLINE";
     let detail = isOnline ? "Ollama Ready" : "Start Ollama";
@@ -1141,10 +1225,15 @@ async function checkLLM() {
       label = "ERROR";
       detail = statusDetail.replace("error:", "").trim();
     }
-    el.innerHTML = `<span class="dot"></span> ${label} <span style="margin-left:auto;font-size:0.65rem;color:var(--text-muted);">${detail}</span>`;
+    el.replaceChildren();
+    const dot = document.createElement("span"); dot.className = "dot"; el.appendChild(dot);
+    el.appendChild(document.createTextNode(` ${label} `));
+    const detailEl = document.createElement("span"); detailEl.style.cssText = "margin-left:auto;font-size:0.65rem;color:var(--text-muted);"; detailEl.textContent = detail; el.appendChild(detailEl);
   } catch {
     el.className = "llm-status offline";
-    el.innerHTML = `<span class="dot"></span> OFFLINE <span style="margin-left:auto;font-size:0.65rem;color:var(--text-muted);">Server unreachable</span>`;
+    el.replaceChildren();
+    const dot = document.createElement("span"); dot.className = "dot"; el.appendChild(dot);
+    const detailEl = document.createElement("span"); detailEl.style.cssText = "margin-left:auto;font-size:0.65rem;color:var(--text-muted);"; detailEl.textContent = "Server unreachable"; el.appendChild(detailEl);
   }
 }
 
@@ -1178,9 +1267,9 @@ async function fetchAndDisplayKPIs(datasetName) {
       const card = document.createElement('div');
       card.className = 'kpi-card';
       card.innerHTML = `
-        <div class="kpi-label">${scalarLabels[key] || key.toUpperCase()}</div>
+        <div class="kpi-label">${escapeHtml(scalarLabels[key] || key.toUpperCase())}</div>
         <div class="kpi-value" style="font-size:1.4rem;color:${scalarColors[i]};-webkit-text-fill-color:${scalarColors[i]};">
-          ${typeof kpis[key] === 'number' ? kpis[key].toLocaleString() : kpis[key]}
+          ${escapeHtml(typeof kpis[key] === 'number' ? kpis[key].toLocaleString() : kpis[key])}
         </div>`;
       container.appendChild(card);
     });
@@ -1192,7 +1281,7 @@ async function fetchAndDisplayKPIs(datasetName) {
       banner.innerHTML = `
         <span style="color:var(--text-muted);font-size:0.8rem;">📅 DATE RANGE</span>
         <span style="color:var(--accent-cyan);font-family:'JetBrains Mono',monospace;font-size:0.9rem;">
-          ${kpis.date_range.from} → ${kpis.date_range.to}
+          ${escapeHtml(kpis.date_range.from)} → ${escapeHtml(kpis.date_range.to)}
         </span>`;
       container.appendChild(banner);
     }
@@ -1201,7 +1290,7 @@ async function fetchAndDisplayKPIs(datasetName) {
 
   } catch (err) {
     console.error("KPI Error:", err);
-    container.innerHTML = `<p style="color:var(--accent-red);">Failed to load KPIs: ${err.message}</p>`;
+    container.textContent = `Failed to load KPIs: ${err.message}`;
   }
 }
 

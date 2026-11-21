@@ -1,4 +1,4 @@
-import os, json, uuid, shutil, glob
+import os, json, uuid, shutil, glob, time
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
@@ -7,9 +7,10 @@ import numpy as np
 import json
 import plotly.express as px
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from urllib.parse import urlsplit
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -27,6 +28,29 @@ from agents_core import (
 from pandas.api.types import is_numeric_dtype
 
 app = FastAPI(title="Smart Business Analytics Dashboard", version="4.0")
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["localhost", "127.0.0.1", "::1", "testserver"],
+)
+
+@app.middleware("http")
+async def protect_local_browser_requests(request, call_next):
+    # This application is local-only. Block browser form/fetch requests initiated
+    # by unrelated websites; allow same-origin localhost/loopback requests.
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        origin = request.headers.get("origin")
+        if origin:
+            parsed = urlsplit(origin)
+            host_header = request.headers.get("host", "").lower()
+            origin_host = (parsed.hostname or "").lower()
+            if parsed.scheme != "http" or origin_host not in {"localhost", "127.0.0.1", "::1"} or parsed.netloc.lower() != host_header:
+                return JSONResponse(status_code=403, content={"detail": "Cross-origin request blocked"})
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    return response
 
 # Global catch-all: ensure every error returns JSON, never HTML
 @app.exception_handler(Exception)
@@ -34,20 +58,29 @@ async def global_exception_handler(request, exc):
     import traceback
     tb = traceback.format_exc()
     print(f"\n=== GLOBAL ERROR ===\n{tb}\n===================\n", flush=True)
-    return JSONResponse(status_code=500, content={"detail": f"Server error: {type(exc).__name__}: {exc}"})
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Frontend and API are served from the same origin; wildcard CORS is unnecessary.
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(CHART_DIR, exist_ok=True)
 
 sessions: Dict[str, Dict[str, Any]] = {}
+SESSION_TTL_SECONDS = 2 * 60 * 60
+
+
+def get_session(session_id: str):
+    """Return a session and opportunistically remove expired local session data."""
+    now = time.time()
+    for old_id, old_session in list(sessions.items()):
+        if now - old_session.get("_last_access", now) > SESSION_TTL_SECONDS:
+            sessions.pop(old_id, None)
+            shutil.rmtree(os.path.join(UPLOAD_DIR, old_id), ignore_errors=True)
+            shutil.rmtree(os.path.join(CHART_DIR, old_id), ignore_errors=True)
+    session = sessions.get(session_id)
+    if session is not None:
+        session["_last_access"] = now
+    return session
 
 
 def _load_file(file_path: str) -> Optional[pd.DataFrame]:
@@ -58,8 +91,8 @@ def _load_file(file_path: str) -> Optional[pd.DataFrame]:
         if lower.endswith(".json"): return pd.read_json(file_path)
         if lower.endswith(".xml"): return pd.read_xml(file_path)
         if lower.endswith(".parquet"): return pd.read_parquet(file_path)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to load {file_path}: {str(e)}")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Unable to read this file. Check that it is valid and supported.")
     return None
 
 
@@ -70,31 +103,56 @@ def health():
 
 @app.post("/api/upload")
 async def upload_files(files: List[UploadFile] = File(...)):
+    if not files or len(files) > 10:
+        raise HTTPException(status_code=400, detail="Upload between 1 and 10 files at a time")
     session_id = str(uuid.uuid4())
     session_dir = os.path.join(UPLOAD_DIR, session_id)
     os.makedirs(session_dir, exist_ok=True)
 
-    uploaded = {}
-    for file in files:
-        ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
-        if ext not in SUPPORTED_FILE_TYPES:
-            raise HTTPException(status_code=400, detail=f"Unsupported file type: .{ext}")
-        file_path = os.path.join(session_dir, file.filename)
-        with open(file_path, "wb") as f:
-            f.write(await file.read())
-        uploaded[file.filename] = file_path
+    try:
+        uploaded = {}
+        max_file_bytes = 25 * 1024 * 1024
+        max_total_bytes = 100 * 1024 * 1024
+        total_bytes = 0
+        for file in files:
+            # Client-supplied filenames are untrusted. Normalize POSIX and Windows separators.
+            original_name = (file.filename or "upload").replace("\\", "/")
+            safe_name = Path(original_name).name
+            if not safe_name or safe_name in {".", ".."}:
+                raise HTTPException(status_code=400, detail="Invalid filename")
+            if safe_name in uploaded:
+                raise HTTPException(status_code=400, detail=f"Duplicate filename: {safe_name}")
+            ext = safe_name.rsplit(".", 1)[-1].lower() if "." in safe_name else ""
+            if ext not in SUPPORTED_FILE_TYPES:
+                raise HTTPException(status_code=400, detail=f"Unsupported file type: .{ext}")
+            contents = await file.read(max_file_bytes + 1)
+            if len(contents) > max_file_bytes:
+                shutil.rmtree(session_dir, ignore_errors=True)
+                raise HTTPException(status_code=413, detail=f"{safe_name} exceeds the 25 MB upload limit")
+            total_bytes += len(contents)
+            if total_bytes > max_total_bytes:
+                shutil.rmtree(session_dir, ignore_errors=True)
+                raise HTTPException(status_code=413, detail="The combined upload size exceeds 100 MB")
+            file_path = os.path.join(session_dir, f"{uuid.uuid4().hex}_{safe_name}")
+            with open(file_path, "wb") as f:
+                f.write(contents)
+            uploaded[safe_name] = file_path
+    except Exception:
+        # Remove partially written uploads if any file in the batch is rejected.
+        shutil.rmtree(session_dir, ignore_errors=True)
+        raise
 
     sessions[session_id] = {
         "files": uploaded, "datasets": {}, "preprocessed": {},
         "prep_reports": {}, "views": {}, "view_titles": {},
-        "shared_cols": [], "results_by_view": {}
+        "shared_cols": [], "results_by_view": {}, "_last_access": time.time()
     }
     return {"session_id": session_id, "files": list(uploaded.keys())}
 
 
 @app.post("/api/preprocess")
 def preprocess(session_id: str = Form(...)):
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     raw = {}
     for name, path in sess["files"].items():
@@ -132,7 +190,7 @@ def preprocess(session_id: str = Form(...)):
 
 @app.get("/api/views/{session_id}")
 def get_views(session_id: str):
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     views = sess.get("views", {})
     return {
@@ -146,7 +204,7 @@ def get_views(session_id: str):
 
 @app.get("/api/data/{session_id}/preview")
 def data_preview(session_id: str, dataset: str = "", rows: int = 10):
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     datasets = sess.get("preprocessed") or sess.get("datasets", {})
     if dataset:
@@ -162,7 +220,7 @@ def data_preview(session_id: str, dataset: str = "", rows: int = 10):
 @app.post("/api/pipeline/run")
 def run_pipeline(session_id: str = Form(...), run_insight: bool = Form(False)):
     try:
-        sess = sessions.get(session_id)
+        sess = get_session(session_id)
         if not sess: raise HTTPException(404, "Session not found")
         views = sess.get("views", {})
         if not views: raise HTTPException(400, "No views found. Upload and preprocess first.")
@@ -210,16 +268,17 @@ def run_pipeline(session_id: str = Form(...), run_insight: bool = Form(False)):
             "view_titles": view_titles,
             "triple_mode": is_triple_view(views),
         }
-    except Exception as e:
+    except HTTPException:
+        raise
+    except Exception:
         import traceback
-        tb = traceback.format_exc()
-        print(f"\n{'='*60}\nPIPELINE CRASHED!\n{tb}\n{'='*60}", flush=True)
-        raise HTTPException(status_code=500, detail=f"Pipeline error: {type(e).__name__}: {e}")
+        print(f"\n{'='*60}\nPIPELINE CRASHED!\n{traceback.format_exc()}\n{'='*60}", flush=True)
+        raise HTTPException(status_code=500, detail="The analysis pipeline failed. Check the server log for details.")
 
 
 @app.get("/api/results/{session_id}")
 def get_results(session_id: str):
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     results_by_view = sess.get("results_by_view", {})
     if not results_by_view: return {"status": "no_results"}
@@ -266,7 +325,7 @@ def get_results(session_id: str):
 
 @app.get("/api/charts/{session_id}")
 def get_charts(session_id: str):
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     results_by_view = sess.get("results_by_view", {})
     view_titles = sess.get("view_titles", {})
@@ -291,7 +350,7 @@ def get_charts(session_id: str):
 
 @app.get("/api/insight/{session_id}")
 def get_insight(session_id: str):
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     results_by_view = sess.get("results_by_view", {})
     out = {}
@@ -303,7 +362,7 @@ def get_insight(session_id: str):
 
 @app.get("/api/recommender/{session_id}")
 def get_recommender(session_id: str):
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     results_by_view = sess.get("results_by_view", {})
     out = {}
@@ -315,7 +374,9 @@ def get_recommender(session_id: str):
 
 @app.post("/api/anomaly/run")
 def run_anomaly(session_id: str = Form(...), view_key: str = Form(""), horizon: int = Form(30)):
-    sess = sessions.get(session_id)
+    if horizon < 1 or horizon > 90:
+        raise HTTPException(400, "Horizon must be between 1 and 90 periods")
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     views = sess.get("views", {})
     datasets = views.get(view_key, {}) if view_key else (sess.get("preprocessed") or sess.get("datasets", {}))
@@ -335,7 +396,7 @@ def run_anomaly(session_id: str = Form(...), view_key: str = Form(""), horizon: 
 
 @app.post("/api/anomaly/explain")
 def explain_anomaly(session_id: str = Form(...), view_key: str = Form("")):
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     cache = sess.get("_anomaly_cache", {})
     if view_key in cache:
@@ -398,7 +459,9 @@ ABSOLUTE RESTRICTIONS (VIOLATION WILL RESULT IN TERMINATION):
 
 @app.post("/api/recommender/similar")
 def find_similar(session_id: str = Form(...), dataset: str = Form(...), row_index: int = Form(0), top_n: int = Form(5)):
-    sess = sessions.get(session_id)
+    if row_index < 0 or top_n < 1 or top_n > 20:
+        raise HTTPException(400, "row_index must be non-negative and top_n must be between 1 and 20")
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     datasets = sess.get("preprocessed") or sess.get("datasets", {})
     df = datasets.get(dataset)
@@ -410,7 +473,7 @@ def find_similar(session_id: str = Form(...), dataset: str = Form(...), row_inde
 
 @app.post("/api/pdf/generate")
 def generate_pdf_report(session_id: str = Form(...), view_key: str = Form("")):
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     results_by_view = sess.get("results_by_view", {})
     if view_key and view_key in results_by_view:
@@ -450,6 +513,8 @@ def llm_status():
 
 @app.post("/api/ask")
 def ask_llm(prompt: str = Form(...)):
+    if not prompt.strip() or len(prompt) > 10000:
+        raise HTTPException(400, "Prompt must contain between 1 and 10,000 characters")
     return {"response": ask_llama(prompt, "API")}
 
 # ─── Interactive Chart Builder ───
@@ -486,7 +551,7 @@ def get_columns(session_id: str):
     """Return all column names + types per dataset.
     Falls back to preprocessed/raw datasets if pipeline views not yet available.
     """
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess:
         raise HTTPException(404, "Session not found")
     views = sess.get("views", {})
@@ -539,7 +604,7 @@ def build_chart(
     agg_func controls how y_column is aggregated per x group:
       count | sum | mean | median | min | max
     """
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess:
         raise HTTPException(404, "Session not found")
     # Search all view datasets for the requested dataset
@@ -566,80 +631,35 @@ def build_chart(
             "dataset": dataset_name, "agg_func": agg_func}
 
 
-# Serve frontend as static files — mount AFTER all API routes so they take priority
+@app.get("/api/kpis")
+async def get_kpis(session_id: str, dataset_name: str):
+    """Return basic, session-scoped KPIs for the selected uploaded dataset."""
+    sess = get_session(session_id)
+    if not sess:
+        raise HTTPException(404, "Session not found")
+
+    datasets = sess.get("preprocessed") or sess.get("datasets", {})
+    df = datasets.get(dataset_name)
+    if df is None:
+        raise HTTPException(404, f"Dataset '{dataset_name}' not found")
+
+    numeric = df.select_dtypes(include=np.number)
+    total_cells = int(df.shape[0] * df.shape[1])
+    nulls = int(df.isnull().sum().sum())
+    kpis = {
+        "rows": int(df.shape[0]),
+        "columns": int(df.shape[1]),
+        "numeric_cols": int(len(numeric.columns)),
+        "nulls": nulls,
+        "null_rate": round((nulls / total_cells) * 100, 2) if total_cells else 0.0,
+    }
+    return {"dataset": dataset_name, "kpis": kpis}
+
+
+# Mount the frontend last so it cannot shadow API routes.
 _frontend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend")
 app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")
 
-@app.get("/api/kpis")
-async def get_kpis(dataset_name: str):
-    """
-    100% Accurate KPI Calculator using raw Pandas math (No LLM involved)
-    """
-    datasets = orchestrator.datasets  
-    if dataset_name not in datasets:
-        raise HTTPException(404, f"Dataset '{dataset_name}' not found")
-        
-    df = datasets[dataset_name].copy()
-    
-    # 1. فلترة العواميد (تجاهل معدل التحويل)
-    num_cols = [c for c in df.select_dtypes(include=np.number).columns if "rate" not in c.lower()]
-    
-    # التأكد من وجود عمود التاريخ
-    time_cols = [c for c in df.columns if 'date' in c.lower() or 'time' in c.lower()]
-    
-    kpis = {}
-    
-    # لو عندنا عمود استهلاك الطاقة (TOE Consumption)
-    target_col = None
-    for col in num_cols:
-        if "toe" in col.lower() and "consumption" in col.lower():
-            target_col = col
-            break
-            
-    # لو ملقاش TOE، ياخد عمود القيمة (Value)
-    if not target_col and num_cols:
-        target_col = [c for c in num_cols if "value" in c.lower()][0] if any("value" in c.lower() for c in num_cols) else num_cols[0]
-
-    if target_col and time_cols:
-        time_col = time_cols[0]
-        df[time_col] = pd.to_datetime(df[time_col], errors="coerce")
-        
-        # تجميع الداتا بالشهور عشان الحسابات تطلع صحيحة
-        monthly_data = df.groupby(df[time_col].dt.to_period("M"))[target_col].sum().reset_index()
-        monthly_data = monthly_data.sort_values(time_col)
-        
-        # --- حساب الأرقام الدقيقة ---
-        
-        # 1. إجمالي الاستهلاك (Total)
-        total_value = float(monthly_data[target_col].sum())
-        
-        # 2. متوسط الاستهلاك الشهري (Monthly Average)
-        avg_monthly = float(monthly_data[target_col].mean())
-        
-        # 3. أعلى شهر استهلاك (Max Peak)
-        max_value = float(monthly_data[target_col].max())
-        
-        # 4. نسبة النمو (YoY Growth) - مقارنة أول سنة بآخر سنة
-        yearly_data = df.groupby(df[time_col].dt.year)[target_col].sum().reset_index()
-        if len(yearly_data) >= 2:
-            first_year_val = yearly_data.iloc[0][target_col]
-            last_year_val = yearly_data.iloc[-1][target_col]
-            growth_rate = ((last_year_val - first_year_val) / first_year_val) * 100 if first_year_val > 0 else 0
-        else:
-            growth_rate = 0.0
-
-        # تنسيق الأرقام عشان ترجع بشكل شيك للـ Frontend
-        kpis = {
-            "Total Volume": f"{total_value:,.2f}",
-            "Monthly Average": f"{avg_monthly:,.2f}",
-            "Peak Consumption": f"{max_value:,.2f}",
-            "Overall Growth": f"{growth_rate:,.1f}%"
-        }
-    else:
-        kpis = {"Status": "No numerical/time data available for KPIs"}
-
-    return {"dataset": dataset_name, "kpis": kpis}
-
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)

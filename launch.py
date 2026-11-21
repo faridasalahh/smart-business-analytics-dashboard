@@ -10,7 +10,7 @@ def main():
     installed_flag = Path(".deps_installed")
     if backend_reqs.exists() and not installed_flag.exists():
         print("  Installing dependencies (one-time)...", flush=True)
-        subprocess.run([python_exe, "-m", "pip", "install", "-q", "-r", str(backend_reqs)], shell=True)
+        subprocess.run([python_exe, "-m", "pip", "install", "-q", "-r", str(backend_reqs)], check=True)
         installed_flag.write_text("done")
 
     try:
@@ -19,7 +19,7 @@ def main():
     except ImportError:
         pass
 
-    host = os.getenv("HOST", "0.0.0.0")
+    host = "127.0.0.1"  # Keep the demo bound to this computer only.
     port = int(os.getenv("PORT", "8000"))
 
     print(f"  Starting server on {host}:{port} ...", flush=True)

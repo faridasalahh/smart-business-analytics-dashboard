@@ -25,3 +25,8 @@ env/
 .DS_Store
 .idea/
 .vscode/
+
+# Runtime data and generated artifacts
+/uploads/
+/charts/
+/.deps_installed
