@@ -7,7 +7,6 @@ import numpy as np
 import json
 import plotly.express as px
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -36,13 +35,7 @@ async def global_exception_handler(request, exc):
     print(f"\n=== GLOBAL ERROR ===\n{tb}\n===================\n", flush=True)
     return JSONResponse(status_code=500, content={"detail": f"Server error: {type(exc).__name__}: {exc}"})
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Frontend and API are served from the same origin; wildcard CORS is unnecessary.
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(CHART_DIR, exist_ok=True)
@@ -75,14 +68,25 @@ async def upload_files(files: List[UploadFile] = File(...)):
     os.makedirs(session_dir, exist_ok=True)
 
     uploaded = {}
+    max_file_bytes = 25 * 1024 * 1024
     for file in files:
-        ext = file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else ""
+        # Client-supplied filenames are untrusted. Normalize POSIX and Windows separators.
+        original_name = (file.filename or "upload").replace("\\", "/")
+        safe_name = Path(original_name).name
+        if not safe_name or safe_name in {".", ".."}:
+            raise HTTPException(status_code=400, detail="Invalid filename")
+        if safe_name in uploaded:
+            raise HTTPException(status_code=400, detail=f"Duplicate filename: {safe_name}")
+        ext = safe_name.rsplit(".", 1)[-1].lower() if "." in safe_name else ""
         if ext not in SUPPORTED_FILE_TYPES:
             raise HTTPException(status_code=400, detail=f"Unsupported file type: .{ext}")
-        file_path = os.path.join(session_dir, file.filename)
+        contents = await file.read(max_file_bytes + 1)
+        if len(contents) > max_file_bytes:
+            raise HTTPException(status_code=413, detail=f"{safe_name} exceeds the 25 MB upload limit")
+        file_path = os.path.join(session_dir, f"{uuid.uuid4().hex}_{safe_name}")
         with open(file_path, "wb") as f:
-            f.write(await file.read())
-        uploaded[file.filename] = file_path
+            f.write(contents)
+        uploaded[safe_name] = file_path
 
     sessions[session_id] = {
         "files": uploaded, "datasets": {}, "preprocessed": {},
@@ -566,80 +570,35 @@ def build_chart(
             "dataset": dataset_name, "agg_func": agg_func}
 
 
-# Serve frontend as static files — mount AFTER all API routes so they take priority
+@app.get("/api/kpis")
+async def get_kpis(session_id: str, dataset_name: str):
+    """Return basic, session-scoped KPIs for the selected uploaded dataset."""
+    sess = sessions.get(session_id)
+    if not sess:
+        raise HTTPException(404, "Session not found")
+
+    datasets = sess.get("preprocessed") or sess.get("datasets", {})
+    df = datasets.get(dataset_name)
+    if df is None:
+        raise HTTPException(404, f"Dataset '{dataset_name}' not found")
+
+    numeric = df.select_dtypes(include=np.number)
+    total_cells = int(df.shape[0] * df.shape[1])
+    nulls = int(df.isnull().sum().sum())
+    kpis = {
+        "rows": int(df.shape[0]),
+        "columns": int(df.shape[1]),
+        "numeric_cols": int(len(numeric.columns)),
+        "nulls": nulls,
+        "null_rate": round((nulls / total_cells) * 100, 2) if total_cells else 0.0,
+    }
+    return {"dataset": dataset_name, "kpis": kpis}
+
+
+# Mount the frontend last so it cannot shadow API routes.
 _frontend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend")
 app.mount("/", StaticFiles(directory=_frontend_dir, html=True), name="frontend")
 
-@app.get("/api/kpis")
-async def get_kpis(dataset_name: str):
-    """
-    100% Accurate KPI Calculator using raw Pandas math (No LLM involved)
-    """
-    datasets = orchestrator.datasets  
-    if dataset_name not in datasets:
-        raise HTTPException(404, f"Dataset '{dataset_name}' not found")
-        
-    df = datasets[dataset_name].copy()
-    
-    # 1. فلترة العواميد (تجاهل معدل التحويل)
-    num_cols = [c for c in df.select_dtypes(include=np.number).columns if "rate" not in c.lower()]
-    
-    # التأكد من وجود عمود التاريخ
-    time_cols = [c for c in df.columns if 'date' in c.lower() or 'time' in c.lower()]
-    
-    kpis = {}
-    
-    # لو عندنا عمود استهلاك الطاقة (TOE Consumption)
-    target_col = None
-    for col in num_cols:
-        if "toe" in col.lower() and "consumption" in col.lower():
-            target_col = col
-            break
-            
-    # لو ملقاش TOE، ياخد عمود القيمة (Value)
-    if not target_col and num_cols:
-        target_col = [c for c in num_cols if "value" in c.lower()][0] if any("value" in c.lower() for c in num_cols) else num_cols[0]
-
-    if target_col and time_cols:
-        time_col = time_cols[0]
-        df[time_col] = pd.to_datetime(df[time_col], errors="coerce")
-        
-        # تجميع الداتا بالشهور عشان الحسابات تطلع صحيحة
-        monthly_data = df.groupby(df[time_col].dt.to_period("M"))[target_col].sum().reset_index()
-        monthly_data = monthly_data.sort_values(time_col)
-        
-        # --- حساب الأرقام الدقيقة ---
-        
-        # 1. إجمالي الاستهلاك (Total)
-        total_value = float(monthly_data[target_col].sum())
-        
-        # 2. متوسط الاستهلاك الشهري (Monthly Average)
-        avg_monthly = float(monthly_data[target_col].mean())
-        
-        # 3. أعلى شهر استهلاك (Max Peak)
-        max_value = float(monthly_data[target_col].max())
-        
-        # 4. نسبة النمو (YoY Growth) - مقارنة أول سنة بآخر سنة
-        yearly_data = df.groupby(df[time_col].dt.year)[target_col].sum().reset_index()
-        if len(yearly_data) >= 2:
-            first_year_val = yearly_data.iloc[0][target_col]
-            last_year_val = yearly_data.iloc[-1][target_col]
-            growth_rate = ((last_year_val - first_year_val) / first_year_val) * 100 if first_year_val > 0 else 0
-        else:
-            growth_rate = 0.0
-
-        # تنسيق الأرقام عشان ترجع بشكل شيك للـ Frontend
-        kpis = {
-            "Total Volume": f"{total_value:,.2f}",
-            "Monthly Average": f"{avg_monthly:,.2f}",
-            "Peak Consumption": f"{max_value:,.2f}",
-            "Overall Growth": f"{growth_rate:,.1f}%"
-        }
-    else:
-        kpis = {"Status": "No numerical/time data available for KPIs"}
-
-    return {"dataset": dataset_name, "kpis": kpis}
-
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="127.0.0.1", port=8000)
