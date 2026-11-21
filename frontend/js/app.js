@@ -406,7 +406,7 @@ async function loadAllResults() {
       let html = '';
       for (const [dsName, kpi] of Object.entries(v.kpi || {})) {
         // ── Scalar summary cards ─────────────────────────────────────────────
-        html += `<h3 style="font-family:'Space Grotesk',sans-serif;font-size:0.9rem;color:var(--accent-cyan);margin:16px 0 10px;">📂 ${dsName}</h3>`;
+        html += `<h3 style="font-family:'Space Grotesk',sans-serif;font-size:0.9rem;color:var(--accent-cyan);margin:16px 0 10px;">📂 ${escapeHtml(dsName)}</h3>`;
         html += '<div class="kpi-grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:12px;">';
         const scalars = [
           { label: "Rows",            val: (kpi.rows ?? 0).toLocaleString(),   color: "var(--accent-cyan)"   },
@@ -442,11 +442,11 @@ async function loadAllResults() {
                  </span>`
               : '<span style="color:var(--text-muted)">—</span>';
             const peakHtml = trend
-              ? `<span style="color:var(--accent-yellow);font-size:0.78rem;">${trend.peak_period}</span>`
+              ? `<span style="color:var(--accent-yellow);font-size:0.78rem;">${escapeHtml(trend.peak_period)}</span>`
               : '<span style="color:var(--text-muted)">—</span>';
             const volatility = s.cv_pct > 100 ? '🔴 High' : s.cv_pct > 50 ? '🟡 Medium' : '🟢 Low';
             rows += `<tr>
-              <td style="font-family:'JetBrains Mono',monospace;color:var(--accent-cyan);">${col}</td>
+              <td style="font-family:'JetBrains Mono',monospace;color:var(--accent-cyan);">${escapeHtml(col)}</td>
               <td>${Number(s.total).toLocaleString()}</td>
               <td>${Number(s.mean).toLocaleString()}</td>
               <td>${Number(s.median).toLocaleString()}</td>
@@ -481,16 +481,16 @@ async function loadAllResults() {
       if (!cv || !cv.charts) return "";
       let html = "";
       for (const [dsName, cols] of Object.entries(cv.charts)) {
-        html += `<h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin:16px 0 12px;color:var(--accent-cyan);">📂 ${dsName}</h3><div class="chart-grid">`;
+        html += `<h3 style="font-family:'Space Grotesk',sans-serif;font-size:1rem;margin:16px 0 12px;color:var(--accent-cyan);">📂 ${escapeHtml(dsName)}</h3><div class="chart-grid">`;
         let count = 0;
         for (const [col, chart] of Object.entries(cols)) {
           if (count >= 6) break;
           const overridden = chart.original_type !== chart.type;
           const badgeCls = overridden ? "corrected" : chart.guard_warning ? "warning" : "approved";
           const badgeText = overridden ? `🔄 ${chart.original_type} → ${chart.type}` : chart.guard_warning ? "🛡️ Guard" : `✅ ${chart.type}`;
-          const chartId = `chart-${vk}-${dsName.replace(/\s/g, "")}-${col.replace(/\s/g, "")}`;
+          const chartId = `chart-${encodeURIComponent(vk)}-${encodeURIComponent(dsName)}-${encodeURIComponent(col)}`;
           html += `<div class="chart-container">
-            <div class="chart-header"><span class="chart-title">${col}</span><span class="chart-badge ${badgeCls}">${badgeText}</span></div>
+            <div class="chart-header"><span class="chart-title">${escapeHtml(col)}</span><span class="chart-badge ${badgeCls}">${escapeHtml(badgeText)}</span></div>
             <div class="plotly-container" id="${chartId}" style="width:100%;height:380px;"></div>
           </div>`;
           count++;
@@ -562,7 +562,7 @@ async function loadAllResults() {
         if (!cv || !cv.charts) continue;
         for (const [dsName, cols] of Object.entries(cv.charts)) {
           for (const [col, chart] of Object.entries(cols)) {
-            const chartId = `chart-${vk}-${dsName.replace(/\s/g, "")}-${col.replace(/\s/g, "")}`;
+            const chartId = `chart-${encodeURIComponent(vk)}-${encodeURIComponent(dsName)}-${encodeURIComponent(col)}`;
             const el = document.getElementById(chartId);
             if (el && chart.json) {
               try {
@@ -828,8 +828,8 @@ async function buildInteractiveChart() {
       displayEl.innerHTML = `
         <div class="chart-container">
           <div class="chart-header">
-            <span class="chart-title">${autoTitle}</span>
-            <span class="chart-badge approved" style="background:${badgeColor};color:#070912;">${ctype}</span>
+            <span class="chart-title">${escapeHtml(autoTitle)}</span>
+            <span class="chart-badge approved" style="background:${badgeColor};color:#070912;">${escapeHtml(ctype)}</span>
           </div>
           <div class="plotly-container" id="latest-chart" style="width:100%;height:420px;"></div>
         </div>`;
@@ -948,7 +948,7 @@ async function runAnomalyView(vk) {
     hideLoading();
     const container = document.getElementById(`anomaly-results-${vk}`);
     if (!container) return;
-    if (data.error) { container.innerHTML = `<div class="status-msg warning">${data.error}</div>`; return; }
+    if (data.error) { container.innerHTML = `<div class="status-msg warning">${escapeHtml(data.error)}</div>`; return; }
     const methodLabel = data.method === "prophet" ? "📈 Prophet (Time-Series)" : "🔁 Bootstrap Simulation";
     container.innerHTML = `
       <div class="kpi-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px;">
@@ -973,11 +973,11 @@ async function runAnomalyView(vk) {
       const rows = data.per_dataset.map(d => {
         const mIcon = d.method === "prophet" ? "📈" : "🔁";
         return `<tr>
-          <td>${d.dataset}</td>
-          <td>${mIcon} ${d.method}</td>
+          <td>${escapeHtml(d.dataset)}</td>
+          <td>${mIcon} ${escapeHtml(d.method)}</td>
           <td style="color:var(--accent-red);font-weight:600;">${d.predicted_anomalies}</td>
           <td>${d.horizon || "-"}</td>
-          <td style="color:var(--text-muted);font-size:0.85rem;">${d.time_column || "none"}</td>
+          <td style="color:var(--text-muted);font-size:0.85rem;">${escapeHtml(d.time_column || "none")}</td>
         </tr>`;
       }).join("");
       container.innerHTML += `
@@ -1002,7 +1002,7 @@ async function runAnomalyView(vk) {
                       <div style="background: rgba(239, 68, 68, 0.15); border-left: 4px solid #ef4444; padding: 12px 16px; border-radius: 4px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
                         <div>
                           <h4 style="margin: 0; font-size: 0.95rem; color: #f8fafc; font-weight: 600;">⚠️ Horizon Anomalies Detected</h4>
-                          <p style="margin: 4px 0 0 0; font-size: 0.8rem; color: #94a3b8;">Dataset: <span style="color:#ef4444; font-weight:600;">${d.dataset}</span> | Column: <code>${col.column}</code></p>
+                          <p style="margin: 4px 0 0 0; font-size: 0.8rem; color: #94a3b8;">Dataset: <span style="color:#ef4444; font-weight:600;">${escapeHtml(d.dataset)}</span> | Column: <code>${escapeHtml(col.column)}</code></p>
                         </div>
                         <div style="background: #ef4444; color: #ffffff; padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; font-family: 'JetBrains Mono', monospace;">
                           ${col.predicted_list.length} ANOMALIES
@@ -1023,8 +1023,8 @@ async function runAnomalyView(vk) {
                   col.predicted_list.forEach(p => {
                      previewHtml += `
                             <tr style="border-bottom: 1px solid rgba(255,255,255,0.04); transition: background 0.2s;" onmouseover="this.style.background='rgba(239, 68, 68, 0.03)'" onmouseout="this.style.background='transparent'">
-                              <td style="padding: 12px 16px; color: #cbd5e1; font-family: 'JetBrains Mono', monospace;">📅 ${p.date}</td>
-                              <td style="padding: 12px 16px; color: #f1f5f9; font-weight: 500;">📈 ${p.expected}</td>
+                              <td style="padding: 12px 16px; color: #cbd5e1; font-family: 'JetBrains Mono', monospace;">📅 ${escapeHtml(p.date)}</td>
+                              <td style="padding: 12px 16px; color: #f1f5f9; font-weight: 500;">📈 ${escapeHtml(p.expected)}</td>
                               <td style="padding: 12px 16px; text-align: right;">
                                 <span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 3px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.05em;">ANOMALY RISK</span>
                               </td>
@@ -1045,7 +1045,7 @@ async function runAnomalyView(vk) {
                       <div style="background: rgba(239, 68, 68, 0.15); border-left: 4px solid #ef4444; padding: 12px 16px; border-radius: 4px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
                         <div>
                           <h4 style="margin: 0; font-size: 0.95rem; color: #f8fafc; font-weight: 600;">⚠️ Simulated Profile Anomaly Signatures</h4>
-                          <p style="margin: 4px 0 0 0; font-size: 0.8rem; color: #94a3b8;">Dataset: <span style="color:#ef4444; font-weight:600;">${d.dataset}</span></p>
+                          <p style="margin: 4px 0 0 0; font-size: 0.8rem; color: #94a3b8;">Dataset: <span style="color:#ef4444; font-weight:600;">${escapeHtml(d.dataset)}</span></p>
                         </div>
                       </div>
                       <div style="background: #0f172a; border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; max-height: 300px; overflow-y: auto;">
@@ -1061,7 +1061,7 @@ async function runAnomalyView(vk) {
             d.simulation.predicted_list.forEach(p => {
                previewHtml += `
                             <tr style="border-bottom: 1px solid rgba(255,255,255,0.04);">
-                              <td style="padding: 12px 16px; color: #cbd5e1; font-family: 'JetBrains Mono', monospace;">⚠️ ${p.expected}</td>
+                              <td style="padding: 12px 16px; color: #cbd5e1; font-family: 'JetBrains Mono', monospace;">⚠️ ${escapeHtml(p.expected)}</td>
                               <td style="padding: 12px 16px; text-align: right;">
                                 <span style="background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); padding: 3px 8px; border-radius: 4px; font-size: 0.72rem; font-weight: 600;">CRITICAL</span>
                               </td>
@@ -1216,7 +1216,7 @@ async function checkLLM() {
     if (!res.ok) throw new Error(res.status);
     const data = await res.json();
     const isOnline = data.online === true;
-    const statusDetail = data.status || (isOnline ? "online" : "offline");
+    const statusDetail = String(data.status || (isOnline ? "online" : "offline"));
     el.className = `llm-status ${isOnline ? "online" : "offline"}`;
     let label = isOnline ? "ONLINE" : "OFFLINE";
     let detail = isOnline ? "Ollama Ready" : "Start Ollama";
@@ -1225,10 +1225,15 @@ async function checkLLM() {
       label = "ERROR";
       detail = statusDetail.replace("error:", "").trim();
     }
-    el.innerHTML = `<span class="dot"></span> ${label} <span style="margin-left:auto;font-size:0.65rem;color:var(--text-muted);">${detail}</span>`;
+    el.replaceChildren();
+    const dot = document.createElement("span"); dot.className = "dot"; el.appendChild(dot);
+    el.appendChild(document.createTextNode(` ${label} `));
+    const detailEl = document.createElement("span"); detailEl.style.cssText = "margin-left:auto;font-size:0.65rem;color:var(--text-muted);"; detailEl.textContent = detail; el.appendChild(detailEl);
   } catch {
     el.className = "llm-status offline";
-    el.innerHTML = `<span class="dot"></span> OFFLINE <span style="margin-left:auto;font-size:0.65rem;color:var(--text-muted);">Server unreachable</span>`;
+    el.replaceChildren();
+    const dot = document.createElement("span"); dot.className = "dot"; el.appendChild(dot);
+    const detailEl = document.createElement("span"); detailEl.style.cssText = "margin-left:auto;font-size:0.65rem;color:var(--text-muted);"; detailEl.textContent = "Server unreachable"; el.appendChild(detailEl);
   }
 }
 
@@ -1262,9 +1267,9 @@ async function fetchAndDisplayKPIs(datasetName) {
       const card = document.createElement('div');
       card.className = 'kpi-card';
       card.innerHTML = `
-        <div class="kpi-label">${scalarLabels[key] || key.toUpperCase()}</div>
+        <div class="kpi-label">${escapeHtml(scalarLabels[key] || key.toUpperCase())}</div>
         <div class="kpi-value" style="font-size:1.4rem;color:${scalarColors[i]};-webkit-text-fill-color:${scalarColors[i]};">
-          ${typeof kpis[key] === 'number' ? kpis[key].toLocaleString() : kpis[key]}
+          ${escapeHtml(typeof kpis[key] === 'number' ? kpis[key].toLocaleString() : kpis[key])}
         </div>`;
       container.appendChild(card);
     });
@@ -1276,7 +1281,7 @@ async function fetchAndDisplayKPIs(datasetName) {
       banner.innerHTML = `
         <span style="color:var(--text-muted);font-size:0.8rem;">📅 DATE RANGE</span>
         <span style="color:var(--accent-cyan);font-family:'JetBrains Mono',monospace;font-size:0.9rem;">
-          ${kpis.date_range.from} → ${kpis.date_range.to}
+          ${escapeHtml(kpis.date_range.from)} → ${escapeHtml(kpis.date_range.to)}
         </span>`;
       container.appendChild(banner);
     }
@@ -1285,7 +1290,7 @@ async function fetchAndDisplayKPIs(datasetName) {
 
   } catch (err) {
     console.error("KPI Error:", err);
-    container.innerHTML = `<p style="color:var(--accent-red);">Failed to load KPIs: ${err.message}</p>`;
+    container.textContent = `Failed to load KPIs: ${err.message}`;
   }
 }
 
