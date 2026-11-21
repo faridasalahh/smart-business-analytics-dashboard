@@ -165,10 +165,6 @@ Uploaded datasets and generated artifacts are handled by the running application
 
 The project was submitted in partial fulfilment of the requirements for the bachelor's degree in Information Technology and Computer Science, with the Computer Science and Artificial Intelligence program.
 
-## License
-
-This repository does not currently include an open-source license. The code is therefore not granted permissions for public reuse, modification, or redistribution.
-
 ## Limitations
 
 - AI-generated insights depend on the local Ollama service and the selected model being available.
@@ -179,4 +175,4 @@ This repository does not currently include an open-source license. The code is t
 
 ## License
 
-No license has been added yet. If the team agrees to publish the code for reuse, choose a license together and add its corresponding `LICENSE` file. Until then, do not assume others have permission to reuse the code.
+This repository does not currently include an open-source license. The code is therefore not granted permissions for public reuse, modification, or redistribution.
