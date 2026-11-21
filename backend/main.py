@@ -33,7 +33,7 @@ async def global_exception_handler(request, exc):
     import traceback
     tb = traceback.format_exc()
     print(f"\n=== GLOBAL ERROR ===\n{tb}\n===================\n", flush=True)
-    return JSONResponse(status_code=500, content={"detail": f"Server error: {type(exc).__name__}: {exc}"})
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 # Frontend and API are served from the same origin; wildcard CORS is unnecessary.
 
