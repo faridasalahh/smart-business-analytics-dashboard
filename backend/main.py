@@ -1,4 +1,4 @@
-import os, json, uuid, shutil, glob
+import os, json, uuid, shutil, glob, time
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 
@@ -41,9 +41,9 @@ async def protect_local_browser_requests(request, call_next):
         origin = request.headers.get("origin")
         if origin:
             parsed = urlsplit(origin)
-            host = request.headers.get("host", "").split(":")[0].strip("[]").lower()
+            host_header = request.headers.get("host", "").lower()
             origin_host = (parsed.hostname or "").lower()
-            if parsed.scheme != "http" or origin_host not in {"localhost", "127.0.0.1", "::1"} or origin_host != host:
+            if parsed.scheme != "http" or origin_host not in {"localhost", "127.0.0.1", "::1"} or parsed.netloc.lower() != host_header:
                 return JSONResponse(status_code=403, content={"detail": "Cross-origin request blocked"})
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -66,6 +66,21 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(CHART_DIR, exist_ok=True)
 
 sessions: Dict[str, Dict[str, Any]] = {}
+SESSION_TTL_SECONDS = 2 * 60 * 60
+
+
+def get_session(session_id: str):
+    """Return a session and opportunistically remove expired local session data."""
+    now = time.time()
+    for old_id, old_session in list(sessions.items()):
+        if now - old_session.get("_last_access", now) > SESSION_TTL_SECONDS:
+            sessions.pop(old_id, None)
+            shutil.rmtree(os.path.join(UPLOAD_DIR, old_id), ignore_errors=True)
+            shutil.rmtree(os.path.join(CHART_DIR, old_id), ignore_errors=True)
+    session = sessions.get(session_id)
+    if session is not None:
+        session["_last_access"] = now
+    return session
 
 
 def _load_file(file_path: str) -> Optional[pd.DataFrame]:
@@ -125,14 +140,14 @@ async def upload_files(files: List[UploadFile] = File(...)):
     sessions[session_id] = {
         "files": uploaded, "datasets": {}, "preprocessed": {},
         "prep_reports": {}, "views": {}, "view_titles": {},
-        "shared_cols": [], "results_by_view": {}
+        "shared_cols": [], "results_by_view": {}, "_last_access": time.time()
     }
     return {"session_id": session_id, "files": list(uploaded.keys())}
 
 
 @app.post("/api/preprocess")
 def preprocess(session_id: str = Form(...)):
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     raw = {}
     for name, path in sess["files"].items():
@@ -170,7 +185,7 @@ def preprocess(session_id: str = Form(...)):
 
 @app.get("/api/views/{session_id}")
 def get_views(session_id: str):
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     views = sess.get("views", {})
     return {
@@ -184,7 +199,7 @@ def get_views(session_id: str):
 
 @app.get("/api/data/{session_id}/preview")
 def data_preview(session_id: str, dataset: str = "", rows: int = 10):
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     datasets = sess.get("preprocessed") or sess.get("datasets", {})
     if dataset:
@@ -200,7 +215,7 @@ def data_preview(session_id: str, dataset: str = "", rows: int = 10):
 @app.post("/api/pipeline/run")
 def run_pipeline(session_id: str = Form(...), run_insight: bool = Form(False)):
     try:
-        sess = sessions.get(session_id)
+        sess = get_session(session_id)
         if not sess: raise HTTPException(404, "Session not found")
         views = sess.get("views", {})
         if not views: raise HTTPException(400, "No views found. Upload and preprocess first.")
@@ -256,7 +271,7 @@ def run_pipeline(session_id: str = Form(...), run_insight: bool = Form(False)):
 
 @app.get("/api/results/{session_id}")
 def get_results(session_id: str):
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     results_by_view = sess.get("results_by_view", {})
     if not results_by_view: return {"status": "no_results"}
@@ -303,7 +318,7 @@ def get_results(session_id: str):
 
 @app.get("/api/charts/{session_id}")
 def get_charts(session_id: str):
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     results_by_view = sess.get("results_by_view", {})
     view_titles = sess.get("view_titles", {})
@@ -328,7 +343,7 @@ def get_charts(session_id: str):
 
 @app.get("/api/insight/{session_id}")
 def get_insight(session_id: str):
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     results_by_view = sess.get("results_by_view", {})
     out = {}
@@ -340,7 +355,7 @@ def get_insight(session_id: str):
 
 @app.get("/api/recommender/{session_id}")
 def get_recommender(session_id: str):
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     results_by_view = sess.get("results_by_view", {})
     out = {}
@@ -354,7 +369,7 @@ def get_recommender(session_id: str):
 def run_anomaly(session_id: str = Form(...), view_key: str = Form(""), horizon: int = Form(30)):
     if horizon < 1 or horizon > 90:
         raise HTTPException(400, "Horizon must be between 1 and 90 periods")
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     views = sess.get("views", {})
     datasets = views.get(view_key, {}) if view_key else (sess.get("preprocessed") or sess.get("datasets", {}))
@@ -374,7 +389,7 @@ def run_anomaly(session_id: str = Form(...), view_key: str = Form(""), horizon: 
 
 @app.post("/api/anomaly/explain")
 def explain_anomaly(session_id: str = Form(...), view_key: str = Form("")):
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     cache = sess.get("_anomaly_cache", {})
     if view_key in cache:
@@ -439,7 +454,7 @@ ABSOLUTE RESTRICTIONS (VIOLATION WILL RESULT IN TERMINATION):
 def find_similar(session_id: str = Form(...), dataset: str = Form(...), row_index: int = Form(0), top_n: int = Form(5)):
     if row_index < 0 or top_n < 1 or top_n > 20:
         raise HTTPException(400, "row_index must be non-negative and top_n must be between 1 and 20")
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     datasets = sess.get("preprocessed") or sess.get("datasets", {})
     df = datasets.get(dataset)
@@ -451,7 +466,7 @@ def find_similar(session_id: str = Form(...), dataset: str = Form(...), row_inde
 
 @app.post("/api/pdf/generate")
 def generate_pdf_report(session_id: str = Form(...), view_key: str = Form("")):
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     results_by_view = sess.get("results_by_view", {})
     if view_key and view_key in results_by_view:
@@ -529,7 +544,7 @@ def get_columns(session_id: str):
     """Return all column names + types per dataset.
     Falls back to preprocessed/raw datasets if pipeline views not yet available.
     """
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess:
         raise HTTPException(404, "Session not found")
     views = sess.get("views", {})
@@ -582,7 +597,7 @@ def build_chart(
     agg_func controls how y_column is aggregated per x group:
       count | sum | mean | median | min | max
     """
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess:
         raise HTTPException(404, "Session not found")
     # Search all view datasets for the requested dataset
@@ -612,7 +627,7 @@ def build_chart(
 @app.get("/api/kpis")
 async def get_kpis(session_id: str, dataset_name: str):
     """Return basic, session-scoped KPIs for the selected uploaded dataset."""
-    sess = sessions.get(session_id)
+    sess = get_session(session_id)
     if not sess:
         raise HTTPException(404, "Session not found")
 
