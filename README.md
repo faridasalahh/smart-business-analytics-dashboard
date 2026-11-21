@@ -167,7 +167,7 @@ The project was submitted in partial fulfilment of the requirements for the bach
 
 ## License
 
-This repository does not currently include an open-source license. The code is therefore not granted permissions for public reuse, modification, or redistribution. Please contact the project contributors to discuss permission before reusing any part of the work.
+This repository does not currently include an open-source license. The code is therefore not granted permissions for public reuse, modification, or redistribution.
 
 ## Limitations
 
