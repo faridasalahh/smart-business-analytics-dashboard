@@ -109,33 +109,38 @@ async def upload_files(files: List[UploadFile] = File(...)):
     session_dir = os.path.join(UPLOAD_DIR, session_id)
     os.makedirs(session_dir, exist_ok=True)
 
-    uploaded = {}
-    max_file_bytes = 25 * 1024 * 1024
-    max_total_bytes = 100 * 1024 * 1024
-    total_bytes = 0
-    for file in files:
-        # Client-supplied filenames are untrusted. Normalize POSIX and Windows separators.
-        original_name = (file.filename or "upload").replace("\\", "/")
-        safe_name = Path(original_name).name
-        if not safe_name or safe_name in {".", ".."}:
-            raise HTTPException(status_code=400, detail="Invalid filename")
-        if safe_name in uploaded:
-            raise HTTPException(status_code=400, detail=f"Duplicate filename: {safe_name}")
-        ext = safe_name.rsplit(".", 1)[-1].lower() if "." in safe_name else ""
-        if ext not in SUPPORTED_FILE_TYPES:
-            raise HTTPException(status_code=400, detail=f"Unsupported file type: .{ext}")
-        contents = await file.read(max_file_bytes + 1)
-        if len(contents) > max_file_bytes:
-            shutil.rmtree(session_dir, ignore_errors=True)
-            raise HTTPException(status_code=413, detail=f"{safe_name} exceeds the 25 MB upload limit")
-        total_bytes += len(contents)
-        if total_bytes > max_total_bytes:
-            shutil.rmtree(session_dir, ignore_errors=True)
-            raise HTTPException(status_code=413, detail="The combined upload size exceeds 100 MB")
-        file_path = os.path.join(session_dir, f"{uuid.uuid4().hex}_{safe_name}")
-        with open(file_path, "wb") as f:
-            f.write(contents)
-        uploaded[safe_name] = file_path
+    try:
+        uploaded = {}
+        max_file_bytes = 25 * 1024 * 1024
+        max_total_bytes = 100 * 1024 * 1024
+        total_bytes = 0
+        for file in files:
+            # Client-supplied filenames are untrusted. Normalize POSIX and Windows separators.
+            original_name = (file.filename or "upload").replace("\\", "/")
+            safe_name = Path(original_name).name
+            if not safe_name or safe_name in {".", ".."}:
+                raise HTTPException(status_code=400, detail="Invalid filename")
+            if safe_name in uploaded:
+                raise HTTPException(status_code=400, detail=f"Duplicate filename: {safe_name}")
+            ext = safe_name.rsplit(".", 1)[-1].lower() if "." in safe_name else ""
+            if ext not in SUPPORTED_FILE_TYPES:
+                raise HTTPException(status_code=400, detail=f"Unsupported file type: .{ext}")
+            contents = await file.read(max_file_bytes + 1)
+            if len(contents) > max_file_bytes:
+                shutil.rmtree(session_dir, ignore_errors=True)
+                raise HTTPException(status_code=413, detail=f"{safe_name} exceeds the 25 MB upload limit")
+            total_bytes += len(contents)
+            if total_bytes > max_total_bytes:
+                shutil.rmtree(session_dir, ignore_errors=True)
+                raise HTTPException(status_code=413, detail="The combined upload size exceeds 100 MB")
+            file_path = os.path.join(session_dir, f"{uuid.uuid4().hex}_{safe_name}")
+            with open(file_path, "wb") as f:
+                f.write(contents)
+            uploaded[safe_name] = file_path
+    except Exception:
+        # Remove partially written uploads if any file in the batch is rejected.
+        shutil.rmtree(session_dir, ignore_errors=True)
+        raise
 
     sessions[session_id] = {
         "files": uploaded, "datasets": {}, "preprocessed": {},
