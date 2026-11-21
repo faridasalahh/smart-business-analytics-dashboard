@@ -9,6 +9,8 @@ import plotly.express as px
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from urllib.parse import urlsplit
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -26,6 +28,24 @@ from agents_core import (
 from pandas.api.types import is_numeric_dtype
 
 app = FastAPI(title="Smart Business Analytics Dashboard", version="4.0")
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=["localhost", "127.0.0.1", "::1", "testserver"],
+)
+
+@app.middleware("http")
+async def protect_local_browser_requests(request, call_next):
+    # This application is local-only. Block browser form/fetch requests initiated
+    # by unrelated websites; allow same-origin localhost/loopback requests.
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        origin = request.headers.get("origin")
+        if origin:
+            parsed = urlsplit(origin)
+            host = request.headers.get("host", "").split(":")[0].strip("[]").lower()
+            origin_host = (parsed.hostname or "").lower()
+            if parsed.scheme != "http" or origin_host not in {"localhost", "127.0.0.1", "::1"} or origin_host != host:
+                return JSONResponse(status_code=403, content={"detail": "Cross-origin request blocked"})
+    return await call_next(request)
 
 # Global catch-all: ensure every error returns JSON, never HTML
 @app.exception_handler(Exception)
@@ -51,8 +71,8 @@ def _load_file(file_path: str) -> Optional[pd.DataFrame]:
         if lower.endswith(".json"): return pd.read_json(file_path)
         if lower.endswith(".xml"): return pd.read_xml(file_path)
         if lower.endswith(".parquet"): return pd.read_parquet(file_path)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to load {file_path}: {str(e)}")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Unable to read this file. Check that it is valid and supported.")
     return None
 
 
@@ -63,12 +83,16 @@ def health():
 
 @app.post("/api/upload")
 async def upload_files(files: List[UploadFile] = File(...)):
+    if not files or len(files) > 10:
+        raise HTTPException(status_code=400, detail="Upload between 1 and 10 files at a time")
     session_id = str(uuid.uuid4())
     session_dir = os.path.join(UPLOAD_DIR, session_id)
     os.makedirs(session_dir, exist_ok=True)
 
     uploaded = {}
     max_file_bytes = 25 * 1024 * 1024
+    max_total_bytes = 100 * 1024 * 1024
+    total_bytes = 0
     for file in files:
         # Client-supplied filenames are untrusted. Normalize POSIX and Windows separators.
         original_name = (file.filename or "upload").replace("\\", "/")
@@ -82,7 +106,12 @@ async def upload_files(files: List[UploadFile] = File(...)):
             raise HTTPException(status_code=400, detail=f"Unsupported file type: .{ext}")
         contents = await file.read(max_file_bytes + 1)
         if len(contents) > max_file_bytes:
+            shutil.rmtree(session_dir, ignore_errors=True)
             raise HTTPException(status_code=413, detail=f"{safe_name} exceeds the 25 MB upload limit")
+        total_bytes += len(contents)
+        if total_bytes > max_total_bytes:
+            shutil.rmtree(session_dir, ignore_errors=True)
+            raise HTTPException(status_code=413, detail="The combined upload size exceeds 100 MB")
         file_path = os.path.join(session_dir, f"{uuid.uuid4().hex}_{safe_name}")
         with open(file_path, "wb") as f:
             f.write(contents)
@@ -214,11 +243,10 @@ def run_pipeline(session_id: str = Form(...), run_insight: bool = Form(False)):
             "view_titles": view_titles,
             "triple_mode": is_triple_view(views),
         }
-    except Exception as e:
+    except Exception:
         import traceback
-        tb = traceback.format_exc()
-        print(f"\n{'='*60}\nPIPELINE CRASHED!\n{tb}\n{'='*60}", flush=True)
-        raise HTTPException(status_code=500, detail=f"Pipeline error: {type(e).__name__}: {e}")
+        print(f"\n{'='*60}\nPIPELINE CRASHED!\n{traceback.format_exc()}\n{'='*60}", flush=True)
+        raise HTTPException(status_code=500, detail="The analysis pipeline failed. Check the server log for details.")
 
 
 @app.get("/api/results/{session_id}")
@@ -319,6 +347,8 @@ def get_recommender(session_id: str):
 
 @app.post("/api/anomaly/run")
 def run_anomaly(session_id: str = Form(...), view_key: str = Form(""), horizon: int = Form(30)):
+    if horizon < 1 or horizon > 90:
+        raise HTTPException(400, "Horizon must be between 1 and 90 periods")
     sess = sessions.get(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     views = sess.get("views", {})
@@ -402,6 +432,8 @@ ABSOLUTE RESTRICTIONS (VIOLATION WILL RESULT IN TERMINATION):
 
 @app.post("/api/recommender/similar")
 def find_similar(session_id: str = Form(...), dataset: str = Form(...), row_index: int = Form(0), top_n: int = Form(5)):
+    if row_index < 0 or top_n < 1 or top_n > 20:
+        raise HTTPException(400, "row_index must be non-negative and top_n must be between 1 and 20")
     sess = sessions.get(session_id)
     if not sess: raise HTTPException(404, "Session not found")
     datasets = sess.get("preprocessed") or sess.get("datasets", {})
@@ -454,6 +486,8 @@ def llm_status():
 
 @app.post("/api/ask")
 def ask_llm(prompt: str = Form(...)):
+    if not prompt.strip() or len(prompt) > 10000:
+        raise HTTPException(400, "Prompt must contain between 1 and 10,000 characters")
     return {"response": ask_llama(prompt, "API")}
 
 # ─── Interactive Chart Builder ───
