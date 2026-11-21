@@ -1,64 +1,67 @@
 # Smart Business Analytics Dashboard
 
-A local-first business analytics dashboard that automates data preparation, visualization, anomaly detection, and natural-language business insights through a multi-agent workflow.
+A local-first business analytics application that turns uploaded datasets into interactive visualizations, statistical summaries, anomaly analysis, and AI-generated business insights through a multi-agent workflow.
 
-> **Graduation project | Nile University | 2026**
+> **Nile University · Artificial Intelligence Graduation Project · 2026**
 >
-> Developed as a collaborative team project. See the project report and team documentation for full project context and contribution details.
+> Developed as a collaborative team project. This repository presents the project implementation; team members' names and individual contributions should be credited in the project documentation.
 
-## Overview
+## Project Overview
 
-The application lets users upload structured business datasets, preprocess and explore the data, generate interactive visualizations, detect historical and forecast anomalies, and receive AI-generated explanations and recommendations.
+The dashboard helps users explore business data without manually building every analysis step. Users upload one or more datasets, review the processed data, run an agent workflow, explore charts and KPIs, inspect potential anomalies, and receive natural-language insights and recommendations.
 
-The system uses a FastAPI backend, a vanilla JavaScript frontend, a LangGraph-orchestrated agent workflow, and a locally hosted LLaMA model served through Ollama. Dataset analysis and model inference are designed to run locally rather than sending business data to a cloud LLM provider.
+The application consists of a **FastAPI/Python backend** and a **vanilla JavaScript frontend**. LangGraph coordinates the analysis workflow, while a locally hosted LLaMA model is accessed through Ollama for AI-generated explanations and recommendations.
 
-## Architecture
+## Main Capabilities
 
-The main workflow has four stages:
+- Upload CSV, Excel, JSON, XML, Parquet, and TXT datasets.
+- Preprocess and profile uploaded data with Pandas.
+- Analyze one or multiple dataset views.
+- Generate interactive Plotly visualizations and business KPIs.
+- Calculate descriptive statistics and identify statistical outliers.
+- Run time-series forecasting and predictive anomaly analysis with Prophet.
+- Generate natural-language business insights and suggested next steps using a local LLM.
+- Export an analytical report as a PDF.
 
-1. **Data upload and interaction** — upload supported datasets, choose single- or multi-view analysis, and detect the business domain.
-2. **Data processing and analysis** — parse and preprocess data with Python/Pandas; coordinate the analysis workflow with LangGraph; calculate descriptive statistics and forecast anomalies with Prophet.
-3. **AI reasoning and insight generation** — use LLaMA 3.1 through Ollama to generate business narratives, explain predictive anomalies, and suggest next actions.
-4. **Dashboard output** — present data previews, KPIs, visualizations, AI insights, anomaly analysis, recommendations, and PDF report export.
+## System Architecture
 
-### Multi-agent workflow
+The workflow is organized into four stages:
 
-The backend defines seven agent roles:
+1. **Data upload and interaction** — users upload datasets, choose the analysis view, and begin the workflow.
+2. **Data processing and analysis** — Python/Pandas prepares and profiles the data; LangGraph coordinates the agent workflow; statistical analysis and Prophet forecasting identify patterns and potential anomalies.
+3. **AI reasoning and insight generation** — LLaMA 3.1, served locally through Ollama, generates business narratives, anomaly explanations, and recommendations.
+4. **Dashboard output** — the frontend presents data previews, KPIs, charts, insights, anomaly analysis, recommendations, and PDF export.
 
-- **Retriever** — loads and profiles datasets.
-- **Planner** — selects relevant columns and analytical priorities.
-- **Stylist** — recommends chart types and visual styles.
-- **Visualizer** — builds chart specifications.
-- **Critic** — checks visualization quality and can route work back for revision.
-- **Insight** — generates natural-language business analysis.
-- **Recommender** — proposes actionable next steps.
+### Agent Workflow
 
-## Features
+The backend includes the following agent roles:
 
-- CSV, Excel, JSON, XML, Parquet, and TXT data ingestion (subject to installed parsing engines).
-- Data preprocessing and descriptive statistics.
-- Single-dataset and multi-view analysis.
-- Interactive Plotly visualizations.
-- IQR-based outlier analysis.
-- Prophet-based time-series forecasting and anomaly detection.
-- LLM-generated business insights and recommendations.
-- PDF executive report generation.
-- Local LLM integration through Ollama.
+| Agent | Responsibility |
+|---|---|
+| Retriever | Loads and profiles the available datasets |
+| Planner | Selects relevant columns and analytical priorities |
+| Stylist | Chooses chart types and visual styles |
+| Visualizer | Builds visualization specifications |
+| Critic | Reviews visualization quality and supports refinement |
+| Insight | Produces natural-language business analysis |
+| Recommender | Suggests possible next actions |
 
 ## Technology Stack
 
-**Backend:** Python, FastAPI, Pandas, NumPy, Scikit-learn  
-**Agent orchestration:** LangGraph  
-**LLM runtime:** Ollama, LLaMA 3.1  
-**Forecasting:** Prophet  
-**Visualization:** Plotly  
-**Frontend:** HTML, CSS, Vanilla JavaScript
+- **Language:** Python, JavaScript, HTML, CSS
+- **Backend/API:** FastAPI, Uvicorn
+- **Data processing:** Pandas, NumPy
+- **Agent orchestration:** LangGraph
+- **Local LLM runtime:** Ollama (default model: LLaMA 3.1 8B)
+- **Machine learning and analysis:** Scikit-learn, Prophet
+- **Visualization and reporting:** Plotly, Kaleido, fpdf2
 
 ## Repository Structure
 
 ```text
-.
+smart-business-analytics-dashboard/
 ├── backend/
+│   ├── __init__.py
 │   ├── agents_core.py
 │   ├── config.py
 │   ├── main.py
@@ -71,79 +74,89 @@ The backend defines seven agent roles:
 │       └── app.js
 ├── launch.py
 ├── requirements.txt
-├── .env.example
-└── .gitignore
+└── README.md
 ```
 
-## Local Setup
+## Run Locally
 
-### 1. Prerequisites
+### Prerequisites
 
-- Python 3.10 or newer (use a version compatible with the pinned dependencies).
-- [Ollama](https://ollama.com/) installed and running.
-- The LLaMA model pulled locally.
+- Python 3.10 or newer.
+- [Ollama](https://ollama.com/) installed locally.
+- Sufficient memory to run the selected Ollama model. A smaller model can be configured if needed.
 
-### 2. Clone the repository
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/faridasalahh/smart-business-analytics-dashboard.git
 cd smart-business-analytics-dashboard
 ```
 
-### 3. Create and activate a virtual environment
+### 2. Create and activate a virtual environment
+
+macOS / Linux:
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-On Windows:
+Windows PowerShell:
 
 ```powershell
-.venv\Scripts\activate
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 ```
 
-### 4. Install dependencies
+### 3. Install Python dependencies
 
 ```bash
+python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
-### 5. Configure Ollama
+### 4. Start Ollama and download the model
+
+Make sure the Ollama application/service is running, then run:
 
 ```bash
 ollama pull llama3.1:8b
-ollama serve
 ```
 
-If you use a different model, set `LLM_MODEL` in your `.env` file. You can start from `.env.example`.
+The backend defaults to the Ollama service at `http://127.0.0.1:11434` and the model `llama3.1:8b`. The model can be changed with the `LLM_MODEL` environment variable. The Ollama host can be changed with `OLLAMA_HOST`.
 
-### 6. Run the dashboard
+### 5. Launch the application
 
 ```bash
 python launch.py
 ```
 
-Then open:
+The launcher starts the FastAPI server and opens the dashboard in your browser.
 
-- Dashboard: http://localhost:8000
-- FastAPI documentation: http://localhost:8000/docs
-- Health endpoint: http://localhost:8000/api/health
+- **Dashboard:** http://localhost:8000
+- **API documentation:** http://localhost:8000/docs
+- **Health check:** http://localhost:8000/api/health
 
-Stop the server with `Ctrl+C`.
+Press `Ctrl+C` in the terminal to stop the application.
 
-## Privacy and Data Handling
+## Data and Privacy
 
-The application is designed for local LLM inference through Ollama. Uploaded datasets and generated reports are written to runtime directories (`backend/uploads/` and `backend/charts/`); these directories are excluded from Git by `.gitignore`. Do not commit private, confidential, or personally identifiable datasets.
+The project is designed to use a locally running Ollama model for LLM inference. This avoids sending prompts to a hosted LLM API as part of the default local setup.
 
-## Notes
+Uploaded datasets and generated artifacts are handled by the running application. **Do not upload confidential business data, personal information, API keys, local environment files, or private datasets to this repository.** Review your local configuration and sample files before publishing or sharing the project.
 
-- LLaMA inference requires Ollama to be running and the configured model to be available.
-- Forecasting requires a usable date/time column and sufficient historical observations.
-- Parquet support may require an additional engine such as `pyarrow`, depending on the environment.
-- This repository contains the application source code, not bundled datasets or model weights.
+## Project Context and Credits
 
-## Acknowledgements
+This was developed as a collaborative Artificial Intelligence graduation project at Nile University (2026). Please refer to the project report for the full academic context, and add the names of all team members, supervisor(s), and a concise description of your own contribution here before making the repository public.
 
-This is a collaborative university graduation project. Credit all team members and supervisors in the repository before publishing, and clearly describe your own contributions in the project documentation.
+## Limitations
 
+- AI-generated insights depend on the local Ollama service and the selected model being available.
+- Forecasting quality depends on the presence and quality of a usable time column and sufficient historical observations.
+- Some input formats may require optional parsing engines in the Python environment.
+- This repository contains the application source code; datasets and model weights are not included.
+- The current application should be treated as an academic project/demo, not deployed as a production service without additional security, access-control, and operational hardening.
+
+## License
+
+No license has been added yet. If the team agrees to publish the code for reuse, choose a license together and add its corresponding `LICENSE` file. Until then, do not assume others have permission to reuse the code.
