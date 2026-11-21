@@ -2,7 +2,7 @@ name: Source and smoke tests
 
 on:
   push:
-    branches: [main, security-and-release-fixes]
+    branches: [main]
   pull_request:
     branches: [main]
 
