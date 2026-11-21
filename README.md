@@ -133,7 +133,7 @@ The backend defaults to the Ollama service at `http://127.0.0.1:11434` and the m
 python launch.py
 ```
 
-The launcher starts the FastAPI server and opens the dashboard in your browser.
+The launcher starts the FastAPI server on the local loopback interface (127.0.0.1) and opens the dashboard in your browser. The launcher intentionally ignores a `HOST` override so the demo is not accidentally exposed to your local network.
 
 - **Dashboard:** http://localhost:8000
 - **API documentation:** http://localhost:8000/docs
@@ -173,7 +173,7 @@ The project was submitted in partial fulfilment of the requirements for the bach
 - Forecasting quality depends on the presence and quality of a usable time column and sufficient historical observations.
 - Some input formats may require optional parsing engines in the Python environment.
 - This repository contains the application source code; datasets and model weights are not included.
-- The current application should be treated as an academic project/demo, not deployed as a production service without additional security, access-control, and operational hardening.
+- The current application should be treated as an academic project/demo, not deployed as a production service without additional security, access-control, and operational hardening. The local-only protections are defense-in-depth for a single-user demo, not authentication or a security boundary for multi-user use.
 
 ## License
 
