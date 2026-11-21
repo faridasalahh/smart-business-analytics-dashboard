@@ -169,7 +169,7 @@ async function preprocess() {
     if (sharedCols.length === 0) {
       msgContainer.innerHTML = `<div class="status-msg warning" style="margin-bottom:16px;">⚠️ No Common Columns Detected — The two datasets don't share column names. They will be analyzed independently as Dataset A and Dataset B.</div>`;
     } else {
-      msgContainer.innerHTML = `<div class="status-msg info" style="margin-bottom:16px;">🔀 Triple-View Active — All tabs contain sub-tabs: Dataset A, Dataset B, and their Intersection on <strong>${sharedCols.length} shared column${sharedCols.length > 1 ? 's' : ''}</strong>: ${sharedCols.map(c => `<code style="color:var(--accent-cyan)">${c}</code>`).join(', ')}</div>`;
+      msgContainer.innerHTML = `<div class="status-msg info" style="margin-bottom:16px;">🔀 Triple-View Active — All tabs contain sub-tabs: Dataset A, Dataset B, and their Intersection on <strong>${sharedCols.length} shared column${sharedCols.length > 1 ? 's' : ''}</strong>: ${sharedCols.map(c => `<code style="color:var(--accent-cyan)">${escapeHtml(c)}</code>`).join(', ')}</div>`;
     }
   }
 
@@ -650,7 +650,7 @@ function onChartDatasetChange() {
   }
   if (catCols.length) {
     yOpts += `<optgroup label="🔤 Categorical">` +
-      catCols.map(c => `<option value="${c.name}" ${c.name === currentY ? "selected" : ""}>${c.name}</option>`).join("") +
+      catCols.map(c => `<option value="${escapeHtml(c.name)}" ${c.name === currentY ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("") +
       `</optgroup>`;
   }
   ySel.innerHTML = yOpts;
