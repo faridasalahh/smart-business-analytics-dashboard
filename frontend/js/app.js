@@ -429,7 +429,7 @@ async function loadAllResults() {
         if (kpi.date_range) {
           html += `<div style="background:var(--bg-elevated);border:1px solid var(--border-subtle);border-radius:8px;padding:8px 14px;margin-bottom:12px;font-size:0.82rem;">
             📅 <span style="color:var(--text-muted);">Date Range:</span>
-            <span style="color:var(--accent-cyan);font-family:'JetBrains Mono',monospace;margin-left:8px;">${kpi.date_range.from} → ${kpi.date_range.to}</span>
+            <span style="color:var(--accent-cyan);font-family:'JetBrains Mono',monospace;margin-left:8px;">${escapeHtml(kpi.date_range.from)} → ${escapeHtml(kpi.date_range.to)}</span>
           </div>`;
         }
 
