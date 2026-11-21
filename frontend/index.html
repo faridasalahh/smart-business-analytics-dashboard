@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Business Analytics Dashboard</title>
+  <link rel="icon" href="data:,">
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+</head>
+<body>
+  <div id="loadingOverlay" class="loading-overlay hidden">
+    <div class="spinner"></div>
+    <p>Processing...</p>
+  </div>
+
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo">⚡ Smart Analytics</div>
+      <div class="sidebar-version">ENTERPRISE EDITION · v4.0</div>
+    </div>
+    <div class="sidebar-section">📁 Data Upload</div>
+    <div id="uploadZone" class="upload-zone">
+      <div class="upload-zone-icon">📂</div>
+      <div class="upload-zone-text">Drop files here or click</div>
+      <div class="upload-zone-hint">CSV, Excel, JSON, XML, Parquet</div>
+      <input id="fileInput" type="file" multiple accept=".csv,.xlsx,.xls,.json,.xml,.parquet,.txt" />
+    </div>
+    <div id="fileBadges" class="sidebar-files"></div>
+    <div class="sidebar-section">📊 Loaded Datasets</div>
+    <div class="sidebar-stats">
+      <div class="stat-box"><div class="label">Datasets</div><div class="value" id="statDatasets">0</div></div>
+      <div class="stat-box"><div class="label">Columns</div><div class="value" id="statColumns">0</div></div>
+      <div class="stat-box full"><div class="label">Total Records</div><div class="value" id="statRecords">0</div></div>
+    </div>
+    <div class="sidebar-section">🤖 AI Engine</div>
+    <div id="llmStatus" class="llm-status offline"><span class="dot"></span> Checking...</div>
+  </aside>
+
+  <main class="main">
+    <div class="hero-banner">
+      <div class="hero-content">
+        <div class="hero-icon">⚡</div>
+        <div class="hero-text">
+          <h1>Smart Business Analytics</h1>
+          <p>Multi-Agent AI Analytics System · Graduation Project 2026</p>
+        </div>
+        <div class="hero-pill"><span class="dot"></span> ENTERPRISE EDITION</div>
+      </div>
+    </div>
+
+    <div id="statusMessage" class="hidden"></div>
+    <div id="viewMessage"></div>
+
+    <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="runPipeline()">🚀 Run Agent Pipeline</button>
+      <button class="btn btn-secondary" onclick="downloadPDF()">📥 Export PDF Report</button>
+    </div>
+
+   <div class="tabs">
+      <button class="tab active" data-tab="data">👀 Data Preview</button>
+      <button class="tab" data-tab="kpi">📈 KPIs & Metrics</button>
+      <button class="tab" data-tab="viz">📊 Visualizations</button>
+      <button class="tab" data-tab="insight">🧠 AI Insights</button>
+      <button class="tab" data-tab="anomaly">🤖 Anomaly Detection</button>
+      <button class="tab" data-tab="rec">💡 Recommender</button>
+    </div>
+
+    <div id="panel-kpi" class="tab-panel hidden">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h2 style="font-family:'Space Grotesk',sans-serif;font-size:1.4rem;">📊 Executive Business KPIs</h2>
+        <span style="font-size:0.85rem; color:var(--text-muted); background:var(--bg-card); padding:4px 10px; border-radius:12px; border:1px solid var(--border-subtle);">Real-time metrics</span>
+      </div>
+      
+      <div id="businessKpiContainer" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px;"></div>
+      
+      <h3 style="font-family:'Space Grotesk',sans-serif;font-size:1.1rem;color:var(--text-secondary);margin-top:20px;margin-bottom:10px;">📁 Dataset Statistics</h3>
+      <div id="kpiContent"><p style="color:var(--text-muted);padding:20px;">Upload data and run the pipeline to see dataset KPIs.</p></div>
+    </div>
+
+    <div id="panel-viz" class="tab-panel hidden">
+      <h2 style="font-family:'Space Grotesk',sans-serif;font-size:1.2rem;margin-bottom:16px;">📊 Interactive Chart Builder</h2>
+
+      <!-- ── Builder card ── -->
+      <div class="card" style="margin-bottom:20px;">
+        <div class="card-title" style="margin-bottom:14px;">🎛️ Build Your Chart
+          <span style="margin-left:auto;font-size:0.7rem;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">
+            Choose dataset → axes → chart type → build
+          </span>
+        </div>
+
+        <!-- Row 1: Dataset + X + Swap + Y -->
+        <div style="display:grid;grid-template-columns:1fr auto auto 1fr;gap:10px;align-items:end;margin-bottom:12px;">
+          <div>
+            <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">📂 Dataset</label>
+            <select id="chartDataset" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border-subtle);background:var(--bg-card);color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:0.78rem;"></select>
+          </div>
+          <div>
+            <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">X Axis</label>
+            <select id="chartX" style="min-width:150px;padding:8px 10px;border-radius:8px;border:1px solid var(--border-subtle);background:var(--bg-card);color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:0.78rem;"></select>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:2px;">
+            <label style="font-size:0.68rem;color:var(--text-muted);margin-bottom:4px;">swap</label>
+            <button onclick="swapXY()" title="Swap X ↔ Y"
+              style="background:var(--bg-elevated);border:1px solid var(--border-subtle);color:var(--accent-cyan);border-radius:8px;padding:7px 10px;cursor:pointer;font-size:1rem;line-height:1;">
+              ⇄
+            </button>
+          </div>
+          <div>
+            <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">
+              Y Axis <span id="yOptional" style="color:var(--text-muted);font-size:0.65rem;">(optional)</span>
+            </label>
+            <select id="chartY" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border-subtle);background:var(--bg-card);color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:0.78rem;"></select>
+          </div>
+        </div>
+
+        <!-- Row 2: Chart Type + Aggregation + Title + Build -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end;">
+          <div>
+            <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">📊 Chart Type</label>
+            <select id="chartType" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border-subtle);background:var(--bg-card);color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:0.78rem;">
+              <option value="bar">📊 Bar Chart</option>
+              <option value="line">📈 Line Chart</option>
+              <option value="scatter">🔵 Scatter Plot</option>
+              <option value="pie">🥧 Pie Chart</option>
+              <option value="histogram">📊 Histogram</option>
+              <option value="box">📦 Box Plot</option>
+            </select>
+          </div>
+          <div id="chartAggFuncRow">
+            <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">
+              Aggregate Y <span style="color:var(--accent-cyan);font-size:0.65rem;">(when Y is set)</span>
+            </label>
+            <select id="chartAggFunc" style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border-subtle);background:var(--bg-card);color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:0.78rem;">
+              <option value="sum">∑ Sum</option>
+              <option value="mean" selected>⌀ Mean</option>
+              <option value="count"># Count</option>
+              <option value="median">~ Median</option>
+              <option value="min">↓ Min</option>
+              <option value="max">↑ Max</option>
+            </select>
+          </div>
+          <div>
+            <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">🏷️ Title (optional)</label>
+            <input type="text" id="chartTitle" placeholder="e.g. Revenue by Region"
+              style="width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border-subtle);background:var(--bg-card);color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:0.78rem;" />
+          </div>
+          <div style="display:flex;align-items:flex-end;">
+            <button class="btn btn-primary" onclick="buildInteractiveChart()" style="white-space:nowrap;padding:8px 20px;">
+              🔨 Build Chart
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Latest chart preview ── -->
+      <div id="chartBuilderDisplay">
+        <p style="color:var(--text-muted);padding:12px 0;">Select your options above and click "Build Chart".</p>
+      </div>
+
+      <!-- ── Chart history ── -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin:20px 0 10px;">
+        <h3 style="font-family:'Space Grotesk',sans-serif;font-size:0.9rem;color:var(--text-secondary);">📁 Chart History</h3>
+        <button onclick="clearChartHistory()"
+          style="background:none;border:1px solid var(--border-subtle);color:var(--text-muted);border-radius:6px;padding:4px 10px;font-size:0.72rem;cursor:pointer;font-family:'JetBrains Mono',monospace;">
+          🗑 Clear All
+        </button>
+      </div>
+      <div id="chartHistory"></div>
+
+      <!-- ── Auto-generated pipeline charts ── -->
+      <details style="margin-top:24px;border:1px solid var(--border-subtle);border-radius:12px;padding:16px;background:var(--bg-card);">
+        <summary style="cursor:pointer;font-family:'Space Grotesk',sans-serif;font-size:0.95rem;font-weight:600;color:var(--text-secondary);">
+          🤖 Auto-Generated Charts (from pipeline)
+        </summary>
+        <div id="chartContent" style="margin-top:12px;">
+          <p style="color:var(--text-muted);">Run the pipeline to see auto-generated charts.</p>
+        </div>
+      </details>
+    </div>
+
+
+    <div id="panel-anomaly" class="tab-panel hidden">
+      <h2 style="font-family:'Space Grotesk',sans-serif;font-size:1.2rem;margin-bottom:16px;">🔮 Predictive Anomaly Detection</h2>
+      <div id="anomalyContent"></div>
+    </div>
+
+    <div id="panel-insight" class="tab-panel hidden">
+      <h2 style="font-family:'Space Grotesk',sans-serif;font-size:1.2rem;margin-bottom:16px;">🧠 AI Business Insight Reports</h2>
+      <div id="insightContent"><p style="color:var(--text-muted);">Run the pipeline to generate insights.</p></div>
+    </div>
+
+
+    <div id="panel-rec" class="tab-panel hidden">
+      <h2 style="font-family:'Space Grotesk',sans-serif;font-size:1.2rem;margin-bottom:16px;">💡 Smart Recommender System</h2>
+      <div id="recContent"><p style="color:var(--text-muted);">Run the pipeline with AI enabled to generate recommendations.</p></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+        <div class="card">
+          <div class="card-title">🔍 1. Find Similar Profiles (ML)</div>
+          <p style="color:var(--text-secondary);font-size:0.82rem;margin-bottom:12px;">Discover similar records based on Cosine Similarity.</p>
+          <div style="margin-bottom:12px;">
+            <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Dataset:</label>
+            <select id="dsSelect" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--border-subtle);background:var(--bg-card);color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:0.78rem;"></select>
+          </div>
+          <div style="margin-bottom:12px;">
+            <label style="font-size:0.78rem;color:var(--text-muted);display:block;margin-bottom:4px;">Row Index:</label>
+            <input type="number" id="rowIndex" value="0" min="0" style="width:100%;padding:8px 12px;border-radius:8px;border:1px solid var(--border-subtle);background:var(--bg-card);color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:0.78rem;" />
+          </div>
+          <button class="btn btn-primary btn-sm" onclick="findSimilar()">🔎 Find Similar Records</button>
+          <div id="similarResults"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">📥 2. Export Executive Report</div>
+          <p style="color:var(--text-secondary);font-size:0.82rem;margin-bottom:12px;">Generate a PDF with AI insights, recommendations, and charts.</p>
+          <button class="btn btn-primary btn-sm" onclick="downloadPDF()">⚙️ Compile &amp; Download PDF</button>
+        </div>
+      </div>
+    </div>
+
+
+    <div id="panel-data" class="tab-panel">
+      <h2 style="font-family:'Space Grotesk',sans-serif;font-size:1.2rem;margin-bottom:16px;">👀 Data Preview</h2>
+      <div id="dataPreview"><p style="color:var(--text-muted);">Upload data to see preview.</p></div>
+    </div>
+
+    <footer style="border-top:1px solid var(--border-subtle);padding:20px 0;margin-top:40px;display:flex;justify-content:space-between;">
+      <p style="color:var(--text-muted);font-size:0.78rem;">© 2026 Smart Business Analytics Dashboard · Graduation Project</p>
+      <p style="color:var(--text-muted);font-size:0.78rem;">Built with ⚡ by Team</p>
+    </footer>
+  </main>
+
+  <script src="js/app.js?v=3.0"></script>
+</body>
+</html>
+  
