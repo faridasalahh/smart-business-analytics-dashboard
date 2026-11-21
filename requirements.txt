@@ -1,0 +1,2 @@
+# Root requirements for local setup and deployment platforms
+-r backend/requirements.txt
