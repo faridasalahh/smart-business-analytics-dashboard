@@ -45,7 +45,12 @@ async def protect_local_browser_requests(request, call_next):
             origin_host = (parsed.hostname or "").lower()
             if parsed.scheme != "http" or origin_host not in {"localhost", "127.0.0.1", "::1"} or origin_host != host:
                 return JSONResponse(status_code=403, content={"detail": "Cross-origin request blocked"})
-    return await call_next(request)
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    return response
 
 # Global catch-all: ensure every error returns JSON, never HTML
 @app.exception_handler(Exception)
