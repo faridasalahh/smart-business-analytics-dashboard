@@ -87,3 +87,30 @@ def test_expired_session_removes_runtime_files(tmp_path, monkeypatch):
     assert "expired" not in main.sessions
     assert not (uploads / "expired").exists()
     assert not (charts / "expired").exists()
+
+
+def test_csv_upload_preprocess_and_kpis(tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "UPLOAD_DIR", str(tmp_path / "uploads"))
+    csv_data = b"Customer,Revenue\\nA,100\\nB,200\\n"
+
+    with TestClient(main.app) as client:
+        upload = client.post(
+            "/api/upload",
+            files=[("files", ("sales.csv", csv_data, "text/csv"))],
+        )
+        assert upload.status_code == 200
+        session_id = upload.json()["session_id"]
+
+        prep = client.post("/api/preprocess", data={"session_id": session_id})
+        assert prep.status_code == 200
+        assert "sales.csv" in prep.json()["summary"]
+
+        response = client.get(
+            "/api/kpis",
+            params={"session_id": session_id, "dataset_name": "sales.csv"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["kpis"]["rows"] == 2
+    assert response.json()["kpis"]["columns"] == 2
+    assert response.json()["kpis"]["numeric_cols"] == 1
