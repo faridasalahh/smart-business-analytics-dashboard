@@ -29,7 +29,7 @@ function clearStatus() { document.getElementById("statusMessage").classList.add(
 // with a plain "\n -> <br>" replace, so headings (##), bold (**) and bullet lists
 // showed as literal characters. This renders them properly and escapes HTML first.
 function escapeHtml(s) {
-  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 function renderInline(s) {
   // input is already HTML-escaped
@@ -272,42 +272,67 @@ function makeViewPanels(containerId, htmlFn) {
 // ─── Data Preview ───
 async function loadDataPreview() {
   try {
-    const res = await fetch(`${API}/data/${sessionId}/preview?rows=5`);
+    const res = await fetch(`${API}/data/${encodeURIComponent(sessionId)}/preview?rows=5`);
+    if (!res.ok) throw new Error(`Preview request failed: ${res.status}`);
     const data = await res.json();
     const container = document.getElementById("dataPreview");
-    container.innerHTML = "";
+    container.replaceChildren();
+
     for (const [name, info] of Object.entries(data)) {
       const card = document.createElement("div");
       card.className = "card";
-      card.innerHTML = `<div class="card-title">📂 ${name} <span style="margin-left:auto;font-size:0.75rem;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">${info.shape[0]} rows × ${info.shape[1]} cols</span></div>`;
+
+      const title = document.createElement("div");
+      title.className = "card-title";
+      title.append(document.createTextNode(`📂 ${name} `));
+      const dimensions = document.createElement("span");
+      dimensions.style.cssText = "margin-left:auto;font-size:0.75rem;color:var(--text-muted);font-family:'JetBrains Mono',monospace;";
+      dimensions.textContent = `${info.shape[0]} rows × ${info.shape[1]} cols`;
+      title.appendChild(dimensions);
+      card.appendChild(title);
+
       const wrap = document.createElement("div");
       wrap.className = "table-wrap";
       const table = document.createElement("table");
       table.className = "data-table";
       const headers = Object.keys(info.data[0] || {});
-      table.innerHTML = `<thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead>`;
-      let tbody = "<tbody>";
-      for (const row of info.data) {
-        tbody += `<tr>${headers.map(h => `<td>${row[h] ?? ""}</td>`).join("")}</tr>`;
+      const thead = document.createElement("thead");
+      const headerRow = document.createElement("tr");
+      for (const header of headers) {
+        const th = document.createElement("th");
+        th.textContent = header;
+        headerRow.appendChild(th);
       }
-      tbody += "</tbody>";
-      table.innerHTML += tbody;
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+
+      const tbody = document.createElement("tbody");
+      for (const row of info.data) {
+        const tr = document.createElement("tr");
+        for (const header of headers) {
+          const td = document.createElement("td");
+          td.textContent = row[header] == null ? "" : String(row[header]);
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
       wrap.appendChild(table);
       card.appendChild(wrap);
       container.appendChild(card);
     }
     renderDatasetSelector(data);
 
-    // 🚨 الخطوة التالتة هنا أهي جوه الدالة بالظبط 
     const firstDatasetName = Object.keys(data)[0];
     if (firstDatasetName) {
       fetchAndDisplayKPIs(firstDatasetName);
-      // الانتقال للتاب
       const kpiTabBtn = document.querySelector('.tab[data-tab="kpi"]');
-      if(kpiTabBtn) kpiTabBtn.click();
+      if (kpiTabBtn) kpiTabBtn.click();
     }
-
-  } catch (err) { console.error("Preview error:", err); }
+  } catch (err) {
+    console.error("Preview error:", err);
+    showStatus(`Preview failed: ${err.message}`, "error");
+  }
 }
 
 function renderDatasetSelector(datasets) {
@@ -613,7 +638,7 @@ function onChartDatasetChange() {
     xSel.innerHTML = `<option value="">— No columns loaded —</option>`;
   } else {
     xSel.innerHTML = cols.map(c =>
-      `<option value="${c.name}" ${c.name === currentX ? "selected" : ""}>${c.name} (${c.type})</option>`
+      `<option value="${escapeHtml(c.name)}" ${c.name === currentX ? "selected" : ""}>${escapeHtml(c.name)} (${escapeHtml(c.type)})</option>`
     ).join("");
   }
 
@@ -623,7 +648,7 @@ function onChartDatasetChange() {
   let yOpts = `<option value="">— None (count only) —</option>`;
   if (numCols.length) {
     yOpts += `<optgroup label="📊 Numeric">` +
-      numCols.map(c => `<option value="${c.name}" ${c.name === currentY ? "selected" : ""}>${c.name}</option>`).join("") +
+      numCols.map(c => `<option value="${escapeHtml(c.name)}" ${c.name === currentY ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("") +
       `</optgroup>`;
   }
   if (catCols.length) {
@@ -670,7 +695,7 @@ async function loadChartColumns() {
     }
 
     dsSel.innerHTML = dsNames.map(n =>
-      `<option value="${n}" ${n === currentDs ? "selected" : ""}>${n}</option>`
+      `<option value="${escapeHtml(n)}" ${n === currentDs ? "selected" : ""}>${escapeHtml(n)}</option>`
     ).join("");
 
     onChartDatasetChange(); // populates X and Y dropdowns
@@ -1105,14 +1130,60 @@ async function findSimilar() {
     const data = await res.json();
     hideLoading();
     const container = document.getElementById("similarResults");
-    if (data.error) { container.innerHTML = `<div class="status-msg warning">${data.error}</div>`; return; }
-    if (!data.matches || !data.matches.length) { container.innerHTML = '<div class="status-msg info">No similar records found.</div>'; return; }
+    container.replaceChildren();
+    if (data.error) {
+      const message = document.createElement("div");
+      message.className = "status-msg warning";
+      message.textContent = data.error;
+      container.appendChild(message);
+      return;
+    }
+    if (!data.matches || !data.matches.length) {
+      const message = document.createElement("div");
+      message.className = "status-msg info";
+      message.textContent = "No similar records found.";
+      container.appendChild(message);
+      return;
+    }
+
+    const status = document.createElement("div");
+    status.className = "status-msg success";
+    status.style.marginTop = "12px";
+    status.textContent = `✅ Top ${data.matches.length} matches for Row ${rowIdx}`;
+    container.appendChild(status);
+
+    const wrap = document.createElement("div");
+    wrap.className = "table-wrap";
+    const table = document.createElement("table");
+    table.className = "data-table";
     const headers = Object.keys(data.matches[0]);
-    container.innerHTML = `
-      <div class="status-msg success" style="margin-top:12px;">✅ Top ${data.matches.length} matches for Row ${rowIdx}</div>
-      <div class="table-wrap"><table class="data-table"><thead><tr>${headers.map(h => `<th>${h}</th>`).join("")}</tr></thead>
-      <tbody>${data.matches.map(r => `<tr>${headers.map(h => `<td>${r[h] ?? ""}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
-  } catch (err) { hideLoading(); showStatus(`Similarity search failed: ${err.message}`, "error"); }
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    for (const header of headers) {
+      const th = document.createElement("th");
+      th.textContent = header;
+      headerRow.appendChild(th);
+    }
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    for (const record of data.matches) {
+      const tr = document.createElement("tr");
+      for (const header of headers) {
+        const td = document.createElement("td");
+        td.textContent = record[header] == null ? "" : String(record[header]);
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+    container.appendChild(wrap);
+  } catch (err) {
+    hideLoading();
+    showStatus(`Similarity search failed: ${err.message}`, "error");
+  }
 }
 
 // ─── PDF Export ───
